@@ -1,0 +1,13 @@
+*.egg-info
+*.eggs
+__pycache__
+build
+dist
+*cache
+notebooks/
+*.gz
+scnn_env/
+checkpoints-vqvae-monai-scaled-128/
+reconst-vqvae-monai-scaled-128/
+*.txt
+.ipynb_checkpoints/

@@ -381,3 +381,27 @@ class VQVAE(keras.Model):
         return {"loss": self.loss_tracker.result(),
                 "reconst_loss": self.reconstruction_loss_tracker.result(),
                 "quantize_loss": self.quantize_loss_tracker.result()}
+    
+    def test_step(self, data):
+        x, mask = data
+
+        # Outputs from the VQ-VAE
+        reconstructions = self(x)
+
+        # Apply mask if it exists
+        if mask is not None:
+            reconstructions = tf.where(mask == 0, 0.5 * reconstructions, reconstructions)
+            x = tf.where(mask == 0, 0.5 * x, x)
+
+        # Compute reconstruction loss
+        reconstruction_loss = tf.reduce_mean((reconstructions - x)**2)
+        loss = reconstruction_loss + self.quantizer.losses
+
+        # Update metrics
+        self.loss_tracker.update_state(loss)
+        self.reconstruction_loss_tracker.update_state(reconstruction_loss)
+        self.quantize_loss_tracker.update_state(self.quantizer.losses)
+
+        return {"loss": self.loss_tracker.result(), 
+                "reconst_loss": self.reconstruction_loss_tracker.result(), 
+                "quantize_loss": self.quantize_loss_tracker.result()}

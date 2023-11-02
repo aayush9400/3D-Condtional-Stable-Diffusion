@@ -1,0 +1,103 @@
+openmpi version 4.0.1 loaded.
+Deep Learning stack for Cuda 11.7 loaded
+2023-11-01 21:31:16.529782: I tensorflow/core/platform/cpu_feature_guard.cc:193] This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the following CPU instructions in performance-critical operations:  AVX2 AVX512F AVX512_VNNI FMA
+To enable them in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2023-11-01 21:31:18.463503: I tensorflow/core/util/util.cc:169] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2023-11-01 21:31:20.295584: E tensorflow/stream_executor/cuda/cuda_blas.cc:2981] Unable to register cuBLAS factory: Attempting to register factory for plugin cuBLAS when one has already been registered
+2023-11-01 21:31:35.273790: W tensorflow/stream_executor/platform/default/dso_loader.cc:64] Could not load dynamic library 'libnvinfer.so.7'; dlerror: libnvinfer.so.7: cannot open shared object file: No such file or directory; LD_LIBRARY_PATH: /N/soft/rhel7/deeplearning/Python-3.10.5/libcutensor/lib/11:/N/soft/rhel7/deeplearning/Python-3.10.5/libcusparse_lt/lib64:/N/soft/rhel7/deeplearning/Python-3.10.5/cuda/lib64:/N/soft/rhel7/deeplearning/Python-3.10.5/cuda/lib:/N/soft/rhel7/deeplearning/Python-3.10.5/:/N/soft/rhel7/openmpi/intel/4.0.1/lib:/N/soft/rhel7/intel/19.5/compilers_and_libraries_2019.5.281/linux/compiler/lib/intel64:/N/soft/rhel7/intel/19.5/compilers_and_libraries_2019.5.281/linux/ipp/lib/intel64:/N/soft/rhel7/intel/19.5/compilers_and_libraries_2019.5.281/linux/compiler/lib/intel64_lin:/N/soft/rhel7/intel/19.5/compilers_and_libraries_2019.5.281/linux/mkl/lib/intel64_lin:/N/soft/rhel7/intel/19.5/compilers_and_libraries_2019.5.281/linux/tbb/lib/intel64/gcc4.7:/N/soft/rhel7/intel/19.5/debugger_2019/iga/lib:/N/soft/rhel7/intel/19.5/debugger_2019/libipt/intel64/lib:/N/soft/rhel7/intel/19.5/compilers_and_libraries_2019.5.281/linux/daal/lib/intel64_lin:/N/soft/rhel7/gcc/12.1.0/lib64:/N/soft/rhel7/gcc/12.1.0/lib:/N/soft/rhel7/gcc/infrastructure/lib
+2023-11-01 21:31:35.274822: W tensorflow/stream_executor/platform/default/dso_loader.cc:64] Could not load dynamic library 'libnvinfer_plugin.so.7'; dlerror: libnvinfer_plugin.so.7: cannot open shared object file: No such file or directory; LD_LIBRARY_PATH: /N/soft/rhel7/deeplearning/Python-3.10.5/libcutensor/lib/11:/N/soft/rhel7/deeplearning/Python-3.10.5/libcusparse_lt/lib64:/N/soft/rhel7/deeplearning/Python-3.10.5/cuda/lib64:/N/soft/rhel7/deeplearning/Python-3.10.5/cuda/lib:/N/soft/rhel7/deeplearning/Python-3.10.5/:/N/soft/rhel7/openmpi/intel/4.0.1/lib:/N/soft/rhel7/intel/19.5/compilers_and_libraries_2019.5.281/linux/compiler/lib/intel64:/N/soft/rhel7/intel/19.5/compilers_and_libraries_2019.5.281/linux/ipp/lib/intel64:/N/soft/rhel7/intel/19.5/compilers_and_libraries_2019.5.281/linux/compiler/lib/intel64_lin:/N/soft/rhel7/intel/19.5/compilers_and_libraries_2019.5.281/linux/mkl/lib/intel64_lin:/N/soft/rhel7/intel/19.5/compilers_and_libraries_2019.5.281/linux/tbb/lib/intel64/gcc4.7:/N/soft/rhel7/intel/19.5/debugger_2019/iga/lib:/N/soft/rhel7/intel/19.5/debugger_2019/libipt/intel64/lib:/N/soft/rhel7/intel/19.5/compilers_and_libraries_2019.5.281/linux/daal/lib/intel64_lin:/N/soft/rhel7/gcc/12.1.0/lib64:/N/soft/rhel7/gcc/12.1.0/lib:/N/soft/rhel7/gcc/infrastructure/lib
+2023-11-01 21:31:35.275214: W tensorflow/compiler/tf2tensorrt/utils/py_utils.cc:38] TF-TRT Warning: Cannot dlopen some TensorRT libraries. If you would like to use Nvidia GPU with TensorRT, please make sure the missing libraries mentioned above are installed properly.
+2023-11-01 21:32:06.589407: I tensorflow/core/platform/cpu_feature_guard.cc:193] This TensorFlow binary is optimized with oneAPI Deep Neural Network Library (oneDNN) to use the following CPU instructions in performance-critical operations:  AVX2 AVX512F AVX512_VNNI FMA
+To enable them in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2023-11-01 21:32:11.945261: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1616] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 30975 MB memory:  -> device: 0, name: Tesla V100-PCIE-32GB, pci bus id: 0000:88:00.0, compute capability: 7.0
+2023-11-01 21:32:11.947770: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1616] Created device /job:localhost/replica:0/task:0/device:GPU:1 with 30975 MB memory:  -> device: 1, name: Tesla V100-PCIE-32GB, pci bus id: 0000:89:00.0, compute capability: 7.0
+2023-11-01 21:32:11.949259: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1616] Created device /job:localhost/replica:0/task:0/device:GPU:2 with 30975 MB memory:  -> device: 2, name: Tesla V100-PCIE-32GB, pci bus id: 0000:b1:00.0, compute capability: 7.0
+2023-11-01 21:32:11.950253: I tensorflow/core/common_runtime/gpu/gpu_device.cc:1616] Created device /job:localhost/replica:0/task:0/device:GPU:3 with 30975 MB memory:  -> device: 3, name: Tesla V100-PCIE-32GB, pci bus id: 0000:b2:00.0, compute capability: 7.0
+Number of devices: 4
+[PhysicalDevice(name='/physical_device:GPU:0', device_type='GPU'), PhysicalDevice(name='/physical_device:GPU:1', device_type='GPU'), PhysicalDevice(name='/physical_device:GPU:2', device_type='GPU'), PhysicalDevice(name='/physical_device:GPU:3', device_type='GPU')]
+[LogicalDevice(name='/device:CPU:0', device_type='CPU'), LogicalDevice(name='/device:GPU:0', device_type='GPU'), LogicalDevice(name='/device:GPU:1', device_type='GPU'), LogicalDevice(name='/device:GPU:2', device_type='GPU'), LogicalDevice(name='/device:GPU:3', device_type='GPU')]
+Global Batch Size:  32
+Total Images in dataset:  1549
+Namespace(train=True, train_dm=False, dataset='all', test=False, test_dm=False, lr=0.0002, lbs=8, epochs=60, val_perc=0.1, suffix='B32-KR-all', num_gpus=4, kernel_resize=True, test_epoch=None, save_best_only=False, vqvae_load_ckpt=None, timesteps=300, resume_ckpt=None, bs=32, test_size=13)
+Training Scaled VQVAE monai
+Model: "model"
+_________________________________________________________________
+ Layer (type)                Output Shape              Param #   
+=================================================================
+ input_1 (InputLayer)        [(None, 128, 128, 128, 1  0         
+                             )]                                  
+                                                                 
+ vqvae (VQVAE)               (None, 128, 128, 128, 1)  75596167  
+                                                                 
+=================================================================
+Total params: 75,596,167
+Trainable params: 75,593,473
+Non-trainable params: 2,694
+_________________________________________________________________
+2023-11-01 21:32:16.802657: W tensorflow/core/grappler/optimizers/data/auto_shard.cc:776] AUTO sharding policy will apply DATA sharding policy as it failed to apply FILE sharding policy because of the following reason: Found an unshardable source dataset: name: "TensorSliceDataset/_1"
+op: "TensorSliceDataset"
+input: "Placeholder/_0"
+attr {
+  key: "Toutput_types"
+  value {
+    list {
+      type: DT_STRING
+    }
+  }
+}
+attr {
+  key: "_cardinality"
+  value {
+    i: 1536
+  }
+}
+attr {
+  key: "is_files"
+  value {
+    b: false
+  }
+}
+attr {
+  key: "metadata"
+  value {
+    s: "\n\024TensorSliceDataset:0"
+  }
+}
+attr {
+  key: "output_shapes"
+  value {
+    list {
+      shape {
+      }
+    }
+  }
+}
+attr {
+  key: "replicate_on_split"
+  value {
+    b: false
+  }
+}
+experimental_type {
+  type_id: TFT_PRODUCT
+  args {
+    type_id: TFT_DATASET
+    args {
+      type_id: TFT_PRODUCT
+      args {
+        type_id: TFT_TENSOR
+        args {
+          type_id: TFT_STRING
+        }
+      }
+    }
+  }
+}
+
+None
+Training Now
+Epoch 1/60
+2023-11-01 21:34:17.115920: I tensorflow/stream_executor/cuda/cuda_dnn.cc:384] Loaded cuDNN version 8401
+2023-11-01 21:34:17.622184: I tensorflow/stream_executor/cuda/cuda_dnn.cc:384] Loaded cuDNN version 8401
+2023-11-01 21:34:31.221714: I tensorflow/stream_executor/cuda/cuda_dnn.cc:384] Loaded cuDNN version 8401
+2023-11-01 21:34:32.384495: I tensorflow/stream_executor/cuda/cuda_dnn.cc:384] Loaded cuDNN version 8401
