@@ -11,3 +11,4 @@ checkpoints-vqvae-monai-scaled-128/
 reconst-vqvae-monai-scaled-128/
 *.txt
 .ipynb_checkpoints/
+vqvae3d-monai.sbatch

@@ -396,6 +396,7 @@ class VQVAE(keras.Model):
         # Compute reconstruction loss
         reconstruction_loss = tf.reduce_mean((reconstructions - x)**2)
         loss = reconstruction_loss + self.quantizer.losses
+        loss = loss / self.num_gpus
 
         # Update metrics
         self.loss_tracker.update_state(loss)

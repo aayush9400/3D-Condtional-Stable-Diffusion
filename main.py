@@ -75,21 +75,15 @@ def get_dataset_list(dataset_dir='/N/slate/aajais/skullstripping_datasets/'):
     if args.dataset == 'CC':
         dataset_list = glob.glob(os.path.join(dataset_dir, 'CC359', 'Original', '*.nii.gz'))
     elif args.dataset == 'NFBS':
-        with open('./dataset_NFBS.txt', 'r') as fd:
-            for row in fd:
-                dataset_list.append(dataset_dir + row.split('\n')[0])
+        dataset_list = glob.glob(os.path.join(dataset_dir, 'NFBS_Dataset', '*', 'sub-*_ses-NFB3_T1w_brain.nii.gz'))
     elif args.dataset == 'HCP':
         dataset_list = glob.glob(os.path.join(dataset_dir, 'HCP_T1', 'T1', '*.nii.gz'))
     elif args.dataset == 'both':
         dataset_list = glob.glob(os.path.join(dataset_dir, 'CC359', 'Original', '*.nii.gz'))
-        with open('./dataset_NFBS.txt', 'r') as fd:
-            for row in fd:
-                dataset_list.append(dataset_dir + row.split('\n')[0])
+        dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'NFBS_Dataset', '*', 'sub-*_ses-NFB3_T1w_brain.nii.gz')))
     elif args.dataset == 'all':
         dataset_list = glob.glob(os.path.join(dataset_dir, 'CC359', 'Original', '*.nii.gz'))
-        with open('./dataset_NFBS.txt', 'r') as fd:
-            for row in fd:
-                dataset_list.append(dataset_dir + row.split('\n')[0])
+        dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'NFBS_Dataset', '*', 'sub-*_ses-NFB3_T1w_brain.nii.gz')))
         dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'HCP_T1', 'T1', '*.nii.gz')))
 
     print('Total Images in dataset: ', len(dataset_list))
@@ -129,6 +123,11 @@ def run(args):
     lis = dataset_list[:-args.test_size] if args.test_size > 0 else dataset_list[:]
 
     if args.train:
+        assert args.bs > 0, "Batch size must be greater than 0"
+
+        options = tf.data.Options()
+        options.experimental_distribute.auto_shard_policy = tf.data.experimental.AutoShardPolicy.DATA
+
         dataset = tf.data.Dataset.from_tensor_slices(lis)
         dataset = dataset.shuffle(len(lis), reshuffle_each_iteration=True)
         dataset = dataset.map(lambda x: tf.numpy_function(func=datasetHelperFunc, inp=[x], Tout=[tf.float32, tf.float32]),
@@ -143,6 +142,9 @@ def run(args):
         train_dataset = train_dataset.batch(args.bs).prefetch(tf.data.experimental.AUTOTUNE)
         val_dataset = val_dataset.batch(args.bs).prefetch(tf.data.experimental.AUTOTUNE)
 
+        train_dataset = train_dataset.with_options(options)
+        val_dataset = val_dataset.with_options(options)
+
         with strategy.scope():
             model = VQVAE(
                 in_channels=1,
@@ -154,7 +156,7 @@ def run(args):
                 upsample_parameters=((2, 4, 1, 'same', 0), (2, 4, 1, 'same', 0), (2, 4, 1, 'same', 0)),
                 num_embeddings=256,
                 embedding_dim=64,
-                num_gpus=float(args.num_gpus),
+                num_gpus=args.num_gpus,
                 kernel_resize=args.kernel_resize)
 
             x = tf.keras.layers.Input(shape=(128, 128, 128, 1))
@@ -193,7 +195,7 @@ def run(args):
 
         print('Training Now')
         # Train the model
-        history = model.fit(
+        model.fit(
             x=train_dataset,
             epochs=args.epochs,
             batch_size=args.bs,
@@ -221,7 +223,7 @@ def run(args):
                 upsample_parameters=((2, 4, 1, 'same', 0), (2, 4, 1, 'same', 0), (2, 4, 1, 'same')),
                 num_embeddings=256,
                 embedding_dim=64,
-                num_gpus=float(args.num_gpus),
+                num_gpus=args.num_gpus,
                 kernel_resize=args.kernel_resize)
 
         model.load_weights(os.path.join(
@@ -241,16 +243,17 @@ def run(args):
             np.save(directory + f'{i}-reconst3d-{args.suffix}-epoch{args.test_epoch}.npy', reconst.numpy())
 
 if __name__=='__main__':
+    print(tf.__version__)
     parser = argparse.ArgumentParser()
     parser.add_argument('--train', action='store_true', help='training flag - VQVAE')
     parser.add_argument('--train_dm', action='store_true', help='training flag - Diffsuion')
     parser.add_argument('--dataset', type=str, default='both', help='options for dataset -> HCP, NFBS, CC, both, all')
     parser.add_argument('--test', action='store_true', help='testing flag - VQVAE')
     parser.add_argument('--test_dm', action='store_true', help='testing flag - Diffsuion')
-    parser.add_argument('--lr', type=float, default=0.0002, help='learning rate')
+    parser.add_argument('--lr', type=float, default=0.0001, help='learning rate')
     parser.add_argument('--lbs', type=int, default=5, help='Batch size per gpu')
     parser.add_argument('--epochs', type=int, default=200, help='Epochs')
-    parser.add_argument('--val_perc', type=float, default=0.1, help='Validation Percentage of Dataset')
+    parser.add_argument('--val_perc', type=float, default=0.2, help='Validation Percentage of Dataset')
     parser.add_argument('--suffix', default='basic', type=str, help='output or ckpts saved with this suffix')
     parser.add_argument('--num_gpus', default=2, type=int, help='Number of GPUs to be used')
     parser.add_argument('--kernel_resize', action='store_true', help='kernel resize flag')

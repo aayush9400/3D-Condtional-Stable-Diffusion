@@ -1,6 +1,5 @@
 #!/bin/bash
 
-#SBATCH --account r00230
 #SBATCH -n 2
 #SBATCH --mem=96G
 #SBATCH -t 1:00:00
@@ -10,8 +9,6 @@
 ##SBATCH -N 1
 #SBATCH -o vqvae3d-monai-test-B5.output
 ##SBATCH --mail-type=ALL
-##SBATCH --mail-user=varbayan@iu.edu
-
 
 #SBATCH --gres=gpu:v100:2
 ##SBATCH --gpus-per-node=1
