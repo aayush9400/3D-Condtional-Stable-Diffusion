@@ -2,7 +2,6 @@ import argparse
 import os
 import glob
 import numpy as np
-import matplotlib.pyplot as plt
 
 from tqdm import tqdm
 
@@ -54,18 +53,23 @@ def datasetHelperFunc(path):
         mask, _ = load_nifti(path.replace('/T1/', '/T1_masks_evac/'))
         mask[mask < 1] = 0  # Values <1 in the mask is background
         vol = vol*mask # zero out the background or non-region of interest areas.
+        if mask is not None:
+            mask = np.expand_dims(mask, -1)
+        transform_vol = (vol-np.min(vol)) / (np.max(vol)-np.min(vol))
+        transform_vol = np.expand_dims(transform_vol, -1)
 
-    if mask is not None:
-        mask, _ = transform_img(mask, affine, voxsize)
+    if 'CC359' in path or 'NFBS' in path:
+        if mask is not None:
+            mask, _ = transform_img(mask, affine, voxsize)
+            # Handling negative pixels, occurred as a result of preprocessing
+            mask[mask < 0] *= -1
+            mask = np.expand_dims(mask, -1)
+        transform_vol, _ = transform_img(vol, affine, voxsize)
         # Handling negative pixels, occurred as a result of preprocessing
-        mask[mask < 0] *= -1
-        mask = np.expand_dims(mask, -1)
-    transform_vol, _ = transform_img(vol, affine, voxsize)
-    # Handling negative pixels, occurred as a result of preprocessing
-    transform_vol[transform_vol < 0] *= -1
-    transform_vol = (transform_vol-np.min(transform_vol)) / \
-        (np.max(transform_vol)-np.min(transform_vol))
-    transform_vol = np.expand_dims(transform_vol, -1)
+        transform_vol[transform_vol < 0] *= -1
+        transform_vol = (transform_vol-np.min(transform_vol)) / \
+            (np.max(transform_vol)-np.min(transform_vol))
+        transform_vol = np.expand_dims(transform_vol, -1)
     return tf.convert_to_tensor(transform_vol, tf.float32), tf.convert_to_tensor(mask, tf.float32)
 
 
@@ -121,30 +125,37 @@ def run(args):
     print(args)
 
     lis = dataset_list[:-args.test_size] if args.test_size > 0 else dataset_list[:]
+    if args.test:
+        lis = dataset_list[-args.test_size:]
 
+    options = tf.data.Options()
+    options.experimental_distribute.auto_shard_policy = tf.data.experimental.AutoShardPolicy.DATA
+
+    dataset = tf.data.Dataset.from_tensor_slices(lis)
     if args.train:
-        assert args.bs > 0, "Batch size must be greater than 0"
-
-        options = tf.data.Options()
-        options.experimental_distribute.auto_shard_policy = tf.data.experimental.AutoShardPolicy.DATA
-
-        dataset = tf.data.Dataset.from_tensor_slices(lis)
         dataset = dataset.shuffle(len(lis), reshuffle_each_iteration=True)
-        dataset = dataset.map(lambda x: tf.numpy_function(func=datasetHelperFunc, inp=[x], Tout=[tf.float32, tf.float32]),
-                        num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
+    dataset = dataset.map(lambda x: tf.numpy_function(func=datasetHelperFunc, inp=[x], Tout=[tf.float32, tf.float32]),
+                    num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    if args.train:
         train_size = int((1 - args.val_perc) * len(lis))
+        train_size = train_size - (train_size % args.bs)
 
         train_dataset = dataset.take(train_size)
         val_dataset = dataset.skip(train_size)
 
-        print(f'Training Scaled VQVAE monai')
         train_dataset = train_dataset.batch(args.bs).prefetch(tf.data.experimental.AUTOTUNE)
         val_dataset = val_dataset.batch(args.bs).prefetch(tf.data.experimental.AUTOTUNE)
 
         train_dataset = train_dataset.with_options(options)
         val_dataset = val_dataset.with_options(options)
 
+        train_dataset_cardinality = train_dataset.cardinality().numpy()
+        val_dataset_cardinality = val_dataset.cardinality().numpy()
+
+        print(f"Number of images in the training dataset: {train_dataset_cardinality * args.bs}")
+        print(f"Number of images in the validation dataset: {val_dataset_cardinality * args.bs}")
+
+        print(f'Training Scaled VQVAE monai')
         with strategy.scope():
             model = VQVAE(
                 in_channels=1,
@@ -176,10 +187,10 @@ def run(args):
             
             csv_logger = tf.keras.callbacks.CSVLogger(f'./checkpoints-vqvae-monai-scaled-128/{args.suffix}/training.log', append=True)
 
-            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', 
-                              factor=0.1, 
+            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='quantize_loss', 
+                              factor=0.2, 
                               patience=5, 
-                              min_delta=1e-4, 
+                              min_delta=1e-5, 
                               cooldown=2, 
                               min_lr=1e-6, 
                               verbose=1)
@@ -204,13 +215,7 @@ def run(args):
             verbose=1,
             validation_data=val_dataset
         )
-
     elif args.test:
-        lis = dataset_list[-args.test_size:]
-        dataset = tf.data.Dataset.from_tensor_slices(lis)
-        dataset = dataset.map(lambda x: tf.numpy_function(func=datasetHelperFunc, inp=[x], Tout=[tf.float32, tf.float32]),
-                        num_parallel_calls=tf.data.experimental.AUTOTUNE)
-
         print(f'Testing Scaled VQVAE monai with ckpt - {args.suffix}-{args.test_epoch}')
         with strategy.scope():
             model = VQVAE(
@@ -241,6 +246,46 @@ def run(args):
             loss.append(tf.reduce_mean((reconst-x)**2))
             print(f'Test Loss is {sum(loss)/len(loss)}')
             np.save(directory + f'{i}-reconst3d-{args.suffix}-epoch{args.test_epoch}.npy', reconst.numpy())
+    elif args.train_dm:
+        dataset = dataset.batch(args.bs).prefetch(tf.data.experimental.AUTOTUNE)
+    
+        print(f'Training DM3D model with VQVAE ckpt - {args.vqvae_load_ckpt}')
+        print('Training quantized latents')
+        with strategy.scope():
+            model = DiffusionModel(latent_size=int(
+                128/4), num_embed=256, latent_channels=64, vqvae_load_ckpt=args.vqvae_load_ckpt, args=args)      
+              
+        model.compile(
+            loss=keras.losses.MeanSquaredError(
+                reduction=tf.keras.losses.Reduction.SUM),
+            optimizer=keras.optimizers.Adam(learning_rate=args.lr),
+        )
+
+        model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
+            filepath=f'./checkpoints-dm/{args.suffix}/'+'{epoch}.ckpt',
+            save_weights_only=True)
+        
+        csv_logger = tf.keras.callbacks.CSVLogger(f'./checkpoints-dm/{args.suffix}/training.log', append=True)
+
+        model.fit(
+            dataset,
+            epochs=args.epochs,
+            batch_size=args.bs,
+            callbacks=[csv_logger, model_checkpoint_callback],
+            verbose=1
+        )
+    elif args.test_dm:
+        print(
+            f'Testing Diffusion Model with ckpt - {args.suffix}-{args.test_epoch}')
+        strategy = tf.distribute.MirroredStrategy()
+        with strategy.scope():
+            model = DiffusionModel(latent_size=int(
+                128/4), num_embed=256, latent_channels=64, vqvae_load_ckpt=args.vqvae_load_ckpt, args=args)
+
+        model.load_weights(os.path.join(
+            './checkpoints-dm', args.suffix, str(args.test_epoch)+'.ckpt'))
+        args.suffix += 'epoch'+str(args.test_epoch)
+        model.test(args.suffix)
 
 if __name__=='__main__':
     print(tf.__version__)
@@ -250,10 +295,10 @@ if __name__=='__main__':
     parser.add_argument('--dataset', type=str, default='both', help='options for dataset -> HCP, NFBS, CC, both, all')
     parser.add_argument('--test', action='store_true', help='testing flag - VQVAE')
     parser.add_argument('--test_dm', action='store_true', help='testing flag - Diffsuion')
-    parser.add_argument('--lr', type=float, default=0.0001, help='learning rate')
+    parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
     parser.add_argument('--lbs', type=int, default=5, help='Batch size per gpu')
     parser.add_argument('--epochs', type=int, default=200, help='Epochs')
-    parser.add_argument('--val_perc', type=float, default=0.2, help='Validation Percentage of Dataset')
+    parser.add_argument('--val_perc', type=float, default=0.1, help='Validation Percentage of Dataset')
     parser.add_argument('--suffix', default='basic', type=str, help='output or ckpts saved with this suffix')
     parser.add_argument('--num_gpus', default=2, type=int, help='Number of GPUs to be used')
     parser.add_argument('--kernel_resize', action='store_true', help='kernel resize flag')
