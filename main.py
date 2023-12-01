@@ -2,7 +2,7 @@ import argparse
 import os
 import glob
 import numpy as np
-
+import random
 from tqdm import tqdm
 
 from tensorflow import keras
@@ -31,6 +31,26 @@ def transform_img(image, affine, voxsize=None, init_shape=(256, 256, 256), scale
     transformed_img, _ = reslice(transformed_img, np.eye(4), (1, 1, 1),
                                  (scale, scale, scale))
     return transformed_img, affine2
+
+
+def flip_axis_0(image, mask):
+    """ Flip the image along axis 0 """
+    return np.flip(image, 0), np.flip(mask, 0)
+
+
+def adjust_brightness(image, factor):
+    """ Adjust the brightness of the image """
+    image = np.clip(image, 0, 1)
+    image = np.clip(image * factor, 0, 1)  # Adjust brightness
+    return image
+
+
+def adjust_contrast(image, factor):
+    """ Adjust the contrast of the image """
+    image = np.clip(image, 0, 1)
+    mean = np.mean(image)
+    image = np.clip((1 + factor) * (image - mean) + mean, 0, 1)  # Adjust contrast
+    return image
 
 
 def datasetHelperFunc(path):
@@ -70,7 +90,14 @@ def datasetHelperFunc(path):
         transform_vol = (transform_vol-np.min(transform_vol)) / \
             (np.max(transform_vol)-np.min(transform_vol))
         transform_vol = np.expand_dims(transform_vol, -1)
-    return tf.convert_to_tensor(transform_vol, tf.float32), tf.convert_to_tensor(mask, tf.float32)
+
+    if args.augment:
+        augmented_transform_vol, augmented_mask = flip_axis_0(transform_vol, mask)
+        augmented_transform_vol = adjust_brightness(augmented_transform_vol, 0.8)  # Increase brightness by 20%
+        augmented_transform_vol = adjust_contrast(augmented_transform_vol, 0.8)  # Increase contrast
+        return tf.convert_to_tensor(augmented_transform_vol, tf.float32), tf.convert_to_tensor(augmented_mask, tf.float32)
+    else:
+        return tf.convert_to_tensor(transform_vol, tf.float32), tf.convert_to_tensor(mask, tf.float32)
 
 
 def get_dataset_list(dataset_dir='/N/slate/aajais/skullstripping_datasets/'):
@@ -90,7 +117,6 @@ def get_dataset_list(dataset_dir='/N/slate/aajais/skullstripping_datasets/'):
         dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'NFBS_Dataset', '*', 'sub-*_ses-NFB3_T1w_brain.nii.gz')))
         dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'HCP_T1', 'T1', '*.nii.gz')))
 
-    print('Total Images in dataset: ', len(dataset_list))
     return dataset_list
 
 
@@ -107,6 +133,8 @@ def run(args):
 
     if args.kernel_resize:
         args.suffix += '-KR'
+    if args.augment:
+        args.suffix += '-AUG'
     if args.dataset=='CC':
         args.suffix = 'CC-'+args.suffix
     elif args.dataset=='NFBS':
@@ -120,7 +148,7 @@ def run(args):
     print('Global Batch Size: ', args.bs)
 
     dataset_list = get_dataset_list()
-    
+    print('Total Images in dataset: ', len(dataset_list))
     args.test_size = len(dataset_list) - (len(dataset_list)//args.bs)*args.bs
     print(args)
 
@@ -135,9 +163,19 @@ def run(args):
     if args.train:
         dataset = dataset.shuffle(len(lis), reshuffle_each_iteration=True)
     dataset = dataset.map(lambda x: tf.numpy_function(func=datasetHelperFunc, inp=[x], Tout=[tf.float32, tf.float32]),
-                    num_parallel_calls=tf.data.experimental.AUTOTUNE)
+                num_parallel_calls=tf.data.experimental.AUTOTUNE)
+    
+    if args.augment and args.train:
+        augmented_dataset = tf.data.Dataset.from_tensor_slices(random.sample(lis, int(len(lis)*0.03)*args.bs))
+        augmented_dataset = augmented_dataset.map(
+            lambda x: tf.numpy_function(func=datasetHelperFunc, inp=[x], Tout=[tf.float32, tf.float32]),
+    num_parallel_calls=tf.data.experimental.AUTOTUNE)
+        print("Number of augmented images: ", augmented_dataset.cardinality().numpy())
+        dataset = dataset.concatenate(augmented_dataset)
+        print("Number of total images: ", dataset.cardinality().numpy())
+
     if args.train:
-        train_size = int((1 - args.val_perc) * len(lis))
+        train_size = int((1 - args.val_perc) * dataset.cardinality().numpy())
         train_size = train_size - (train_size % args.bs)
 
         train_dataset = dataset.take(train_size)
@@ -163,6 +201,7 @@ def run(args):
                 num_channels=(32, 64, 128),
                 num_res_channels=(32, 64, 128),
                 num_res_layers=3,
+                # downsample_parameters=(stride, kernel_size, dilation_rate, padding)
                 downsample_parameters=((2, 4, 1, 'same'), (2, 4, 1, 'same'), (2, 4, 1, 'same')),
                 upsample_parameters=((2, 4, 1, 'same', 0), (2, 4, 1, 'same', 0), (2, 4, 1, 'same', 0)),
                 num_embeddings=256,
@@ -187,7 +226,7 @@ def run(args):
             
             csv_logger = tf.keras.callbacks.CSVLogger(f'./checkpoints-vqvae-monai-scaled-128/{args.suffix}/training.log', append=True)
 
-            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='quantize_loss', 
+            reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='reconst_loss', 
                               factor=0.2, 
                               patience=5, 
                               min_delta=1e-5, 
@@ -195,7 +234,11 @@ def run(args):
                               min_lr=1e-6, 
                               verbose=1)
             
-            callbacks = [model_checkpoint_callback, csv_logger, reduce_lr]
+            if args.test_run:
+                callbacks = [reduce_lr]
+            else:
+                callbacks = [model_checkpoint_callback, csv_logger, reduce_lr]
+
 
         initial_epoch = 0
         if args.resume_ckpt:
@@ -290,6 +333,7 @@ def run(args):
 if __name__=='__main__':
     print(tf.__version__)
     parser = argparse.ArgumentParser()
+    parser.add_argument('--augment', default=False, action='store_true', help='Augment Data (FBC)')
     parser.add_argument('--train', action='store_true', help='training flag - VQVAE')
     parser.add_argument('--train_dm', action='store_true', help='training flag - Diffsuion')
     parser.add_argument('--dataset', type=str, default='both', help='options for dataset -> HCP, NFBS, CC, both, all')
@@ -307,6 +351,7 @@ if __name__=='__main__':
     parser.add_argument('--vqvae_load_ckpt', type=str, default=None)
     parser.add_argument('--timesteps', type=int, default=300)
     parser.add_argument('--resume_ckpt', type=str)
+    parser.add_argument('--test_run', default=False, action='store_true')
     args = parser.parse_args()
 
     run(args)
