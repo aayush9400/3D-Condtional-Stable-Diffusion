@@ -166,7 +166,7 @@ def run(args):
                 num_parallel_calls=tf.data.experimental.AUTOTUNE)
     
     if args.augment and args.train:
-        augmented_dataset = tf.data.Dataset.from_tensor_slices(random.sample(lis, int(len(lis)*0.03)*args.bs))
+        augmented_dataset = tf.data.Dataset.from_tensor_slices(random.sample(lis, int(len(lis)*0.04)*args.bs))
         augmented_dataset = augmented_dataset.map(
             lambda x: tf.numpy_function(func=datasetHelperFunc, inp=[x], Tout=[tf.float32, tf.float32]),
     num_parallel_calls=tf.data.experimental.AUTOTUNE)

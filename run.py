@@ -1,12 +1,15 @@
+import os
 import argparse
 from train_eval import run
+
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--augment', default=False, action='store_true', help='Augment Data (FBC)')
     parser.add_argument('--train', action='store_true', help='training flag - VQVAE')
     parser.add_argument('--train_dm', action='store_true', help='training flag - Diffsuion')
-    parser.add_argument('--dataset', type=str, default='both', help='options for dataset -> HCP, NFBS, CC, both, all')
+    parser.add_argument('--dataset', type=str, default='all', help='options for dataset -> HCP, NFBS, CC, both, all')
     parser.add_argument('--test', action='store_true', help='testing flag - VQVAE')
     parser.add_argument('--test_dm', action='store_true', help='testing flag - Diffsuion')
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')

@@ -1,7 +1,7 @@
 import os
 import glob
 
-def get_dataset_list(*args, dataset_dir='/N/slate/aajais/skullstripping_datasets/'):
+def get_dataset_list(args, dataset_dir='/N/slate/aajais/skullstripping_datasets/'):
     dataset_list = []
 
     if args.dataset == 'CC':
@@ -18,4 +18,4 @@ def get_dataset_list(*args, dataset_dir='/N/slate/aajais/skullstripping_datasets
         dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'NFBS_Dataset', '*', 'sub-*_ses-NFB3_T1w_brain.nii.gz')))
         dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'HCP_T1', 'T1', '*.nii.gz')))
 
-    return dataset_list
+    return dataset_list[:24]

@@ -8,11 +8,60 @@ import tensorflow as tf
 from vqvae3d_monai import VQVAE
 from dm3d import DiffusionModel
 
-from data_preprocessing import datasetHelperFunc 
 from dataset import get_dataset_list
+from preprocess import transform_img, flip_axis_0, adjust_brightness, adjust_contrast, load_img
+
+def datasetHelperFunc(path):
+    transform_vol, mask = None, None
+    if isinstance(path, bytes):
+        path = str(path.decode('utf-8'))
+
+    if 'CC359' in path:
+        vol, affine, voxsize = load_img(path, return_voxsize=True)
+        mask, _ = load_img(path.replace('Original', 'STAPLE').replace('.nii.gz', '_staple.nii.gz'))
+        mask[mask < 1] = 0  # Values <1 in the mask is background
+        vol = vol*mask # zero out the background or non-region of interest areas.
+    elif 'NFBS' in path:
+        vol, affine, voxsize = load_img(path, return_voxsize=True)
+        mask, _ = load_img(path[:-7]+'mask.nii.gz')
+        mask[mask < 1] = 0  # Values <1 in the mask is background
+        vol = vol*mask # zero out the background or non-region of interest areas.
+    else:
+        vol, affine, voxsize = load_img(path, return_voxsize=True)
+        mask, _ = load_img(path.replace('/T1/', '/T1_masks_evac/'))
+        mask[mask < 1] = 0  # Values <1 in the mask is background
+        vol = vol*mask # zero out the background or non-region of interest areas.
+        if mask is not None:
+            mask = np.expand_dims(mask, -1)
+        transform_vol = (vol-np.min(vol)) / (np.max(vol)-np.min(vol))
+        transform_vol = np.expand_dims(transform_vol, -1)
+
+    if 'CC359' in path or 'NFBS' in path:
+        if mask is not None:
+            mask, _ = transform_img(mask, affine, voxsize)
+            # Handling negative pixels, occurred as a result of preprocessing
+            mask[mask < 0] *= -1
+            mask = np.expand_dims(mask, -1)
+        transform_vol, _ = transform_img(vol, affine, voxsize)
+        # Handling negative pixels, occurred as a result of preprocessing
+        transform_vol[transform_vol < 0] *= -1
+        transform_vol = (transform_vol-np.min(transform_vol)) / \
+            (np.max(transform_vol)-np.min(transform_vol))
+        transform_vol = np.expand_dims(transform_vol, -1)
+
+    if global_args.augment:
+        augmented_transform_vol, augmented_mask = flip_axis_0(transform_vol, mask)
+        augmented_transform_vol = adjust_brightness(augmented_transform_vol, 0.8)  # Increase brightness by 20%
+        augmented_transform_vol = adjust_contrast(augmented_transform_vol, 0.8)  # Increase contrast
+        return tf.convert_to_tensor(augmented_transform_vol, tf.float32), tf.convert_to_tensor(augmented_mask, tf.float32)
+    else:
+        return tf.convert_to_tensor(transform_vol, tf.float32), tf.convert_to_tensor(mask, tf.float32)
+    
 
 def run(args):
     print(tf.__version__)
+    global global_args
+    global_args = args
 
     strategy = tf.distribute.MirroredStrategy()
     args.num_gpus = strategy.num_replicas_in_sync
@@ -41,7 +90,7 @@ def run(args):
         args.suffix += '-all'
     print('Global Batch Size: ', args.bs)
 
-    dataset_list = get_dataset_list()
+    dataset_list = get_dataset_list(args)
     print('Total Images in dataset: ', len(dataset_list))
     
     args.test_size = len(dataset_list) - (len(dataset_list)//args.bs)*args.bs
