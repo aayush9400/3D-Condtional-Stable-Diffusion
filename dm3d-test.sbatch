@@ -27,4 +27,3 @@ module load deeplearning/.2.9.1
 python main.py --test_dm --lbs 4 --both_datasets --timesteps 300 --test_epoch 51 --vqvae_load_ckpt /N/slate/varbayan/checkpoints-vqvae-monai/B12-both/69.ckpt
 python main.py --test_dm --lbs 4 --both_datasets --timesteps 500 --test_epoch 58 --vqvae_load_ckpt /N/slate/varbayan/checkpoints-vqvae-monai/B12-both/69.ckpt
 python main.py --test_dm --lbs 8 --both_datasets --timesteps 500 --test_epoch 57 --vqvae_load_ckpt /N/slate/varbayan/checkpoints-vqvae-monai/B12-both/69.ckpt
-

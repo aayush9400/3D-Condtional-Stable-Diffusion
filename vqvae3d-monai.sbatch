@@ -12,5 +12,5 @@
 module load deeplearning/.2.9.1
 # python main.py --train --dataset='all' --lbs 2 --epochs 60
 # python main.py --train --augment --kernel_resize --save_best_only --dataset='all' --lbs 3 --epochs 60
-python main.py --train  --augment --kernel_resize --dataset='all' --lbs 3 --lr 0.00001 --epochs 60 --resume_ckpt 24 
+python main.py --train  --augment --kernel_resize --dataset='all' --lbs 3 --lr 0.00001 --epochs 60 --resume_ckpt 37 
 ##--num_gpus 4 --suffix B9 

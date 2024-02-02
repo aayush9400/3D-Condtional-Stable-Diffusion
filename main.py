@@ -92,6 +92,7 @@ def datasetHelperFunc(path):
         transform_vol = np.expand_dims(transform_vol, -1)
 
     if args.augment:
+        print('augmented dataset!')
         augmented_transform_vol, augmented_mask = flip_axis_0(transform_vol, mask)
         augmented_transform_vol = adjust_brightness(augmented_transform_vol, 0.8)  # Increase brightness by 20%
         augmented_transform_vol = adjust_contrast(augmented_transform_vol, 0.8)  # Increase contrast
@@ -117,7 +118,7 @@ def get_dataset_list(dataset_dir='/N/slate/aajais/skullstripping_datasets/'):
         dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'NFBS_Dataset', '*', 'sub-*_ses-NFB3_T1w_brain.nii.gz')))
         dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'HCP_T1', 'T1', '*.nii.gz')))
 
-    return dataset_list
+    return dataset_list[:8]
 
 
 def run(args):
@@ -296,19 +297,24 @@ def run(args):
         print('Training quantized latents')
         with strategy.scope():
             model = DiffusionModel(latent_size=int(
-                128/4), num_embed=256, latent_channels=64, vqvae_load_ckpt=args.vqvae_load_ckpt, args=args)      
+                64/4), num_embed=256, latent_channels=64, vqvae_load_ckpt=args.vqvae_load_ckpt, args=args)      
               
-        model.compile(
-            loss=keras.losses.MeanSquaredError(
-                reduction=tf.keras.losses.Reduction.SUM),
-            optimizer=keras.optimizers.Adam(learning_rate=args.lr),
-        )
+            model.compile(
+                loss=keras.losses.MeanSquaredError(
+                    reduction=tf.keras.losses.Reduction.SUM),
+                optimizer=keras.optimizers.Adam(learning_rate=args.lr),
+            )
 
         model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
             filepath=f'./checkpoints-dm/{args.suffix}/'+'{epoch}.ckpt',
             save_weights_only=True)
         
         csv_logger = tf.keras.callbacks.CSVLogger(f'./checkpoints-dm/{args.suffix}/training.log', append=True)
+
+        if args.test_run:
+                callbacks = []
+        else:
+            callbacks = [model_checkpoint_callback, csv_logger]
 
         model.fit(
             dataset,
@@ -323,7 +329,7 @@ def run(args):
         strategy = tf.distribute.MirroredStrategy()
         with strategy.scope():
             model = DiffusionModel(latent_size=int(
-                128/4), num_embed=256, latent_channels=64, vqvae_load_ckpt=args.vqvae_load_ckpt, args=args)
+                64/4), num_embed=256, latent_channels=64, vqvae_load_ckpt=args.vqvae_load_ckpt, args=args)
 
         model.load_weights(os.path.join(
             './checkpoints-dm', args.suffix, str(args.test_epoch)+'.ckpt'))

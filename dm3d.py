@@ -347,17 +347,17 @@ class DiffusionModel(keras.Model):
         self.b = Betas(args.timesteps)
         self.lc = latent_channels
         self.vqvae_trainer = VQVAE(
-            in_channels=1,
-            out_channels=1,
-            num_channels=(32, 64),
-            num_res_channels=(32, 64),
-            num_res_layers=2,
-            downsample_parameters=((2, 4, 1, 'same'), (2, 4, 1, 'same')),
-            upsample_parameters=((2, 4, 1, 'same', 0), (2, 4, 1, 'same', 0)),
-            num_embeddings=num_embed,
-            embedding_dim=latent_channels,
-            num_gpus=float(args.num_gpus),
-            kernel_resize=args.kernel_resize)
+                in_channels=1,
+                out_channels=1,
+                num_channels=(32, 64, 128),
+                num_res_channels=(32, 64, 128),
+                num_res_layers=3,
+                downsample_parameters=((2, 4, 1, 'same'), (2, 4, 1, 'same'), (2, 4, 1, 'same')),
+                upsample_parameters=((2, 4, 1, 'same', 0), (2, 4, 1, 'same', 0), (2, 4, 1, 'same')),
+                num_embeddings=256,
+                embedding_dim=64,
+                num_gpus=args.num_gpus,
+                kernel_resize=args.kernel_resize)
         if vqvae_load_ckpt is not None:
             print('Loading VQVAE weights')
             self.vqvae_load_ckpt = vqvae_load_ckpt
