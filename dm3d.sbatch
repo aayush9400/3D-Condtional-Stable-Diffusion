@@ -19,4 +19,4 @@ module load deeplearning/.2.9.1
 # python main.py --train_dm --lbs 1 --cc359 --vqvae_load_ckpt /N/slate/varbayan/checkpoints-vqvae-monai/CC-B10/44.ckpt --timesteps 500
 
 # python main.py --train_dm --lbs 2 --both_datasets --vqvae_load_ckpt /N/slate/varbayan/checkpoints-vqvae-monai/B12-both/69.ckpt --timesteps 500
-python main.py --train_dm --lbs 3 --dataset='all' --timesteps 500 --epochs 1 --vqvae_load_ckpt /N/slate/aajais/vqvae_model/49.ckpt
+python main.py --train_dm --lbs 3 --dataset='all' --timesteps 500 --resume_ckpt 48 --epochs 100 --vqvae_load_ckpt /N/slate/aajais/vqvae_model/49.ckpt --save_best_only

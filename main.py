@@ -118,7 +118,7 @@ def get_dataset_list(dataset_dir='/N/slate/aajais/skullstripping_datasets/'):
         dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'NFBS_Dataset', '*', 'sub-*_ses-NFB3_T1w_brain.nii.gz')))
         dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'HCP_T1', 'T1', '*.nii.gz')))
 
-    return dataset_list[:8]
+    return dataset_list
 
 
 def run(args):
@@ -149,6 +149,8 @@ def run(args):
     print('Global Batch Size: ', args.bs)
 
     dataset_list = get_dataset_list()
+    if args.test_run:
+        dataset_list = dataset_list[:24]
     print('Total Images in dataset: ', len(dataset_list))
     args.test_size = len(dataset_list) - (len(dataset_list)//args.bs)*args.bs
     print(args)
@@ -307,7 +309,8 @@ def run(args):
 
         model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
             filepath=f'./checkpoints-dm/{args.suffix}/'+'{epoch}.ckpt',
-            save_weights_only=True)
+            save_weights_only=True,
+            save_best_only=args.save_best_only)
         
         csv_logger = tf.keras.callbacks.CSVLogger(f'./checkpoints-dm/{args.suffix}/training.log', append=True)
 
@@ -316,11 +319,20 @@ def run(args):
         else:
             callbacks = [model_checkpoint_callback, csv_logger]
 
+        initial_epoch = 0
+        if args.resume_ckpt:
+            model.load_weights(os.path.join(
+            './checkpoints-dm', args.suffix, str(args.resume_ckpt)+'.ckpt'))
+            initial_epoch = int(args.resume_ckpt)
+            print(f'Resuming Training from {initial_epoch} epoch')
+
+        print('Training Now')
         model.fit(
             dataset,
             epochs=args.epochs,
             batch_size=args.bs,
-            callbacks=[csv_logger, model_checkpoint_callback],
+            callbacks=callbacks,
+            initial_epoch=initial_epoch,
             verbose=1
         )
     elif args.test_dm:

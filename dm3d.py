@@ -473,7 +473,7 @@ class DiffusionModel(keras.Model):
             print(f'Generating for {i} rsteps')
             self.vqvae_trainer.load_weights(self.vqvae_load_ckpt)
             img_latents = self.generate(
-                (10, 32, 32, 32, 32), last_step=self.timesteps-i)
+                (10, 16, 16, 16, 64), last_step=self.timesteps-i)
             images = self.vqvae_trainer.decoder(img_latents)
             np.save(
                 f'./generated_images_dm3d/{test_prefix}-{i}rsteps.npy', images.numpy())
