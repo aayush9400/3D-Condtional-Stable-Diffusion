@@ -1,5 +1,6 @@
 import argparse
 import os
+import gc
 import glob
 import numpy as np
 import random
@@ -12,10 +13,14 @@ import tensorflow as tf
 
 from dipy.io.image import load_nifti
 from dipy.align.reslice import reslice
+from fury.actor import slicer
 from scipy.ndimage import affine_transform
 
 from vqvae3d_monai import VQVAE
 from dm3d import DiffusionModel
+
+# os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow logging (1 = INFO, 2 = WARNING, 3 = ERROR)
+# tf.get_logger().setLevel('ERROR')
 
 
 def transform_img(image, affine, voxsize=None, init_shape=(256, 256, 256), scale=2):
@@ -33,21 +38,39 @@ def transform_img(image, affine, voxsize=None, init_shape=(256, 256, 256), scale
     return transformed_img, affine2
 
 
+def transform_img_brats(image, affine, voxsize, final_shape = (128, 128, 128)):
+    temp_image, affine_temp = reslice(image, affine, voxsize, (2, 2, 2))
+    temp_image = slicer(temp_image, affine_temp).resliced_array()
+
+    current_shape = temp_image.shape
+
+    pad_x = (final_shape[0] - current_shape[0]) // 2
+    pad_y = (final_shape[1] - current_shape[1]) // 2
+    pad_z = (final_shape[2] - current_shape[2]) // 2
+
+    # Ensure the padding is equally distributed
+    pad_width = ((pad_x, pad_x), (pad_y, pad_y), (pad_z, pad_z))
+
+    transformed_img = np.pad(temp_image, pad_width, mode='constant', constant_values=0)
+
+    return transformed_img, affine
+
+
 def flip_axis_0(image, mask):
     """ Flip the image along axis 0 """
     return np.flip(image, 0), np.flip(mask, 0)
 
 
-def adjust_brightness(image, factor):
-    """ Adjust the brightness of the image """
-    image = np.clip(image, 0, 1)
+def adjust_brightness(image, factor_range=(0.8, 1.2)):
+    """ Randomly adjust the brightness of the image within a given range """
+    factor = np.random.uniform(factor_range[0], factor_range[1])
     image = np.clip(image * factor, 0, 1)  # Adjust brightness
     return image
 
 
-def adjust_contrast(image, factor):
-    """ Adjust the contrast of the image """
-    image = np.clip(image, 0, 1)
+def adjust_contrast(image, factor_range=(0.8, 1.2)):
+    """ Randomly adjust the contrast of the image within a given range """
+    factor = np.random.uniform(factor_range[0], factor_range[1])
     mean = np.mean(image)
     image = np.clip((1 + factor) * (image - mean) + mean, 0, 1)  # Adjust contrast
     return image
@@ -57,45 +80,45 @@ def datasetHelperFunc(path):
     transform_vol, mask = None, None
     if isinstance(path, bytes):
         path = str(path.decode('utf-8'))
-
+    vol, affine, voxsize = load_nifti(path, return_voxsize=True)
     if 'CC359' in path:
-        vol, affine, voxsize = load_nifti(path, return_voxsize=True)
         mask, _ = load_nifti(path.replace('Original', 'STAPLE').replace('.nii.gz', '_staple.nii.gz'))
-        mask[mask < 1] = 0  # Values <1 in the mask is background
-        vol = vol*mask # zero out the background or non-region of interest areas.
     elif 'NFBS' in path:
-        vol, affine, voxsize = load_nifti(path, return_voxsize=True)
         mask, _ = load_nifti(path[:-7]+'mask.nii.gz')
-        mask[mask < 1] = 0  # Values <1 in the mask is background
-        vol = vol*mask # zero out the background or non-region of interest areas.
+    elif 'BraTS2021' in path:
+        vol = vol.astype(np.float32)
+        mask, _ = load_nifti(path.replace('t1.nii.gz', 'seg.nii.gz'))
+        mask = mask.astype(np.float32)
     else:
-        vol, affine, voxsize = load_nifti(path, return_voxsize=True)
+        # HCP Dataset
         mask, _ = load_nifti(path.replace('/T1/', '/T1_masks_evac/'))
-        mask[mask < 1] = 0  # Values <1 in the mask is background
-        vol = vol*mask # zero out the background or non-region of interest areas.
-        if mask is not None:
-            mask = np.expand_dims(mask, -1)
-        transform_vol = (vol-np.min(vol)) / (np.max(vol)-np.min(vol))
-        transform_vol = np.expand_dims(transform_vol, -1)
+
+    mask[mask < 1] = 0  # Values <1 in the mask is background
+    vol = vol*mask # zero out the background or non-region of interest areas.
 
     if 'CC359' in path or 'NFBS' in path:
         if mask is not None:
             mask, _ = transform_img(mask, affine, voxsize)
-            # Handling negative pixels, occurred as a result of preprocessing
-            mask[mask < 0] *= -1
-            mask = np.expand_dims(mask, -1)
         transform_vol, _ = transform_img(vol, affine, voxsize)
-        # Handling negative pixels, occurred as a result of preprocessing
-        transform_vol[transform_vol < 0] *= -1
-        transform_vol = (transform_vol-np.min(transform_vol)) / \
-            (np.max(transform_vol)-np.min(transform_vol))
-        transform_vol = np.expand_dims(transform_vol, -1)
+    elif 'BraTS2021' in path:
+        if mask is not None:
+            mask, _ = transform_img_brats(mask, affine, voxsize)
+        transform_vol, _ = transform_img_brats(vol, affine, voxsize)
+    
+    mask[mask < 0] *= -1 # Handling negative pixels, occurred as a result of preprocessing
+    mask = np.expand_dims(mask, -1)
+    
+    transform_vol[transform_vol < 0] *= -1 # Handling negative pixels, occurred as a result of preprocessing
+
+    transform_vol = (transform_vol-np.min(transform_vol)) / \
+        (np.max(transform_vol)-np.min(transform_vol))
+    transform_vol = np.expand_dims(transform_vol, -1)
 
     if args.augment:
-        print('augmented dataset!')
+        # print('augmented dataset!')
         augmented_transform_vol, augmented_mask = flip_axis_0(transform_vol, mask)
-        augmented_transform_vol = adjust_brightness(augmented_transform_vol, 0.8)  # Increase brightness by 20%
-        augmented_transform_vol = adjust_contrast(augmented_transform_vol, 0.8)  # Increase contrast
+        augmented_transform_vol = adjust_brightness(augmented_transform_vol)  
+        augmented_transform_vol = adjust_contrast(augmented_transform_vol)  
         return tf.convert_to_tensor(augmented_transform_vol, tf.float32), tf.convert_to_tensor(augmented_mask, tf.float32)
     else:
         return tf.convert_to_tensor(transform_vol, tf.float32), tf.convert_to_tensor(mask, tf.float32)
@@ -110,19 +133,25 @@ def get_dataset_list(dataset_dir='/N/slate/aajais/skullstripping_datasets/'):
         dataset_list = glob.glob(os.path.join(dataset_dir, 'NFBS_Dataset', '*', 'sub-*_ses-NFB3_T1w_brain.nii.gz'))
     elif args.dataset == 'HCP':
         dataset_list = glob.glob(os.path.join(dataset_dir, 'HCP_T1', 'T1', '*.nii.gz'))
-    elif args.dataset == 'both':
-        dataset_list = glob.glob(os.path.join(dataset_dir, 'CC359', 'Original', '*.nii.gz'))
-        dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'NFBS_Dataset', '*', 'sub-*_ses-NFB3_T1w_brain.nii.gz')))
+    elif args.dataset == 'BraTS':
+        dataset_list = glob.glob(os.path.join(dataset_dir, 'BraTS2021', '*', '*_t1.nii.gz'))
     elif args.dataset == 'all':
+        dataset_list = glob.glob(os.path.join(dataset_dir, 'CC359', 'Original', '*.nii.gz'))
+        dataset_list = glob.glob(os.path.join(dataset_dir, 'NFBS_Dataset', '*', 'sub-*_ses-NFB3_T1w_brain.nii.gz'))
+        dataset_list = glob.glob(os.path.join(dataset_dir, 'HCP_T1', 'T1', '*.nii.gz'))
+    elif args.dataset == 'all-T':
         dataset_list = glob.glob(os.path.join(dataset_dir, 'CC359', 'Original', '*.nii.gz'))
         dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'NFBS_Dataset', '*', 'sub-*_ses-NFB3_T1w_brain.nii.gz')))
         dataset_list.extend(glob.glob(os.path.join(dataset_dir, 'HCP_T1', 'T1', '*.nii.gz')))
+        dataset_list = glob.glob(os.path.join(dataset_dir, 'BraTS2021', '*', '*_t1.nii.gz'))
 
+    if args.test_run:
+        dataset_list = dataset_list[:24]
     return dataset_list
 
 
 def run(args):
-    strategy = tf.distribute.MirroredStrategy()
+    strategy = tf.distribute.MultiWorkerMirroredStrategy()
     args.num_gpus = strategy.num_replicas_in_sync
     print(f'Number of devices: {args.num_gpus}')
     gpus = tf.config.experimental.list_physical_devices('GPU')
@@ -142,33 +171,32 @@ def run(args):
         args.suffix = 'NFBS-'+args.suffix
     elif args.dataset=='HCP':
         args.suffix = 'HCP-'+args.suffix
-    elif args.dataset == 'both':
-        args.suffix += '-both'
+    elif args.dataset=='BraTS':
+        args.suffix = 'BraTS-'+args.suffix
     elif args.dataset == 'all':
         args.suffix += '-all'
+    elif args.dataset == 'all-T':
+        args.suffix += '-all-T'
     print('Global Batch Size: ', args.bs)
 
     dataset_list = get_dataset_list()
-    if args.test_run:
-        dataset_list = dataset_list[:24]
     print('Total Images in dataset: ', len(dataset_list))
     args.test_size = len(dataset_list) - (len(dataset_list)//args.bs)*args.bs
     print(args)
 
     lis = dataset_list[:-args.test_size] if args.test_size > 0 else dataset_list[:]
-    if args.test:
+    if args.test_vq or args.test_dm:
         lis = dataset_list[-args.test_size:]
 
     options = tf.data.Options()
     options.experimental_distribute.auto_shard_policy = tf.data.experimental.AutoShardPolicy.DATA
 
     dataset = tf.data.Dataset.from_tensor_slices(lis)
-    if args.train:
-        dataset = dataset.shuffle(len(lis), reshuffle_each_iteration=True)
+    
     dataset = dataset.map(lambda x: tf.numpy_function(func=datasetHelperFunc, inp=[x], Tout=[tf.float32, tf.float32]),
                 num_parallel_calls=tf.data.experimental.AUTOTUNE)
     
-    if args.augment and args.train:
+    if args.augment and args.train_vq:
         augmented_dataset = tf.data.Dataset.from_tensor_slices(random.sample(lis, int(len(lis)*0.04)*args.bs))
         augmented_dataset = augmented_dataset.map(
             lambda x: tf.numpy_function(func=datasetHelperFunc, inp=[x], Tout=[tf.float32, tf.float32]),
@@ -176,8 +204,8 @@ def run(args):
         print("Number of augmented images: ", augmented_dataset.cardinality().numpy())
         dataset = dataset.concatenate(augmented_dataset)
         print("Number of total images: ", dataset.cardinality().numpy())
-
-    if args.train:
+    # dataset = dataset.cache()
+    if args.train_vq:
         train_size = int((1 - args.val_perc) * dataset.cardinality().numpy())
         train_size = train_size - (train_size % args.bs)
 
@@ -223,11 +251,11 @@ def run(args):
             )
 
             model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
-                filepath=f'./checkpoints-vqvae-monai-scaled-128/{args.suffix}/'+'{epoch}.ckpt',
+                filepath=f'/N/slate/aajais/checkpoints-vqvae-monai-scaled-128/{args.suffix}/'+'{epoch}.ckpt',
                 save_weights_only=True,
                 save_best_only=args.save_best_only)
             
-            csv_logger = tf.keras.callbacks.CSVLogger(f'./checkpoints-vqvae-monai-scaled-128/{args.suffix}/training.log', append=True)
+            csv_logger = tf.keras.callbacks.CSVLogger(f'/N/slate/aajais/checkpoints-vqvae-monai-scaled-128/{args.suffix}/training.log', append=True)
 
             reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(monitor='reconst_loss', 
                               factor=0.2, 
@@ -246,10 +274,10 @@ def run(args):
         initial_epoch = 0
         if args.resume_ckpt:
             model.load_weights(
-                f'./checkpoints-vqvae-monai-scaled-128/{args.suffix}/'+args.resume_ckpt+'.ckpt')
+                f'/N/slate/aajais/checkpoints-vqvae-monai-scaled-128/{args.suffix}/'+args.resume_ckpt+'.ckpt')
             initial_epoch = int(args.resume_ckpt)
             print(f'Resuming Training from {initial_epoch} epoch')
-
+        gc.collect()
         print('Training Now')
         # Train the model
         model.fit(
@@ -261,7 +289,7 @@ def run(args):
             verbose=1,
             validation_data=val_dataset
         )
-    elif args.test:
+    elif args.test_vq:
         print(f'Testing Scaled VQVAE monai with ckpt - {args.suffix}-{args.test_epoch}')
         with strategy.scope():
             model = VQVAE(
@@ -278,11 +306,11 @@ def run(args):
                 kernel_resize=args.kernel_resize)
 
         model.load_weights(os.path.join(
-            './checkpoints-vqvae-monai-scaled-128', args.suffix, str(args.test_epoch)+'.ckpt'))
+            '/N/slate/aajais/checkpoints-vqvae-monai-scaled-128', args.suffix, str(args.test_epoch)+'.ckpt'))
         test_dataset = dataset.batch(args.bs).prefetch(
             tf.data.experimental.AUTOTUNE)
 
-        directory = f'./reconst-vqvae-monai-scaled-128/{args.suffix}/'
+        directory = f'/N/slate/aajais/reconst-vqvae-monai-scaled-128/{args.suffix}/'
         if not os.path.exists(directory):
                 os.makedirs(directory) 
         loss = []
@@ -304,15 +332,15 @@ def run(args):
             model.compile(
                 loss=keras.losses.MeanSquaredError(
                     reduction=tf.keras.losses.Reduction.SUM),
-                optimizer=keras.optimizers.Adam(learning_rate=args.lr),
+                optimizer=keras.optimizers.legacy.Adam(learning_rate=args.lr),
             )
 
         model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
-            filepath=f'./checkpoints-dm/{args.suffix}/'+'{epoch}.ckpt',
+            filepath=f'/N/slate/aajais/checkpoints-dm/{args.suffix}/'+'{epoch}.ckpt',
             save_weights_only=True,
             save_best_only=args.save_best_only)
         
-        csv_logger = tf.keras.callbacks.CSVLogger(f'./checkpoints-dm/{args.suffix}/training.log', append=True)
+        csv_logger = tf.keras.callbacks.CSVLogger(f'/N/slate/aajais/checkpoints-dm/{args.suffix}/training.log', append=True)
 
         if args.test_run:
                 callbacks = []
@@ -322,7 +350,7 @@ def run(args):
         initial_epoch = 0
         if args.resume_ckpt:
             model.load_weights(os.path.join(
-            './checkpoints-dm', args.suffix, str(args.resume_ckpt)+'.ckpt'))
+            '/N/slate/aajais/checkpoints-dm', args.suffix, str(args.resume_ckpt)+'.ckpt'))
             initial_epoch = int(args.resume_ckpt)
             print(f'Resuming Training from {initial_epoch} epoch')
 
@@ -344,7 +372,7 @@ def run(args):
                 64/4), num_embed=256, latent_channels=64, vqvae_load_ckpt=args.vqvae_load_ckpt, args=args)
 
         model.load_weights(os.path.join(
-            './checkpoints-dm', args.suffix, str(args.test_epoch)+'.ckpt'))
+            '/N/slate/aajais/checkpoints-dm', args.suffix, str(args.test_epoch)+'.ckpt'))
         args.suffix += 'epoch'+str(args.test_epoch)
         model.test(args.suffix)
 
@@ -352,10 +380,10 @@ if __name__=='__main__':
     print(tf.__version__)
     parser = argparse.ArgumentParser()
     parser.add_argument('--augment', default=False, action='store_true', help='Augment Data (FBC)')
-    parser.add_argument('--train', action='store_true', help='training flag - VQVAE')
+    parser.add_argument('--train_vq', action='store_true', help='training flag - VQVAE')
     parser.add_argument('--train_dm', action='store_true', help='training flag - Diffsuion')
-    parser.add_argument('--dataset', type=str, default='both', help='options for dataset -> HCP, NFBS, CC, both, all')
-    parser.add_argument('--test', action='store_true', help='testing flag - VQVAE')
+    parser.add_argument('--dataset', type=str, default='both', help='options for dataset -> HCP, NFBS, CC, BraTS, all-H, all-T')
+    parser.add_argument('--test_vq', action='store_true', help='testing flag - VQVAE')
     parser.add_argument('--test_dm', action='store_true', help='testing flag - Diffsuion')
     parser.add_argument('--lr', type=float, default=1e-4, help='learning rate')
     parser.add_argument('--lbs', type=int, default=5, help='Batch size per gpu')
