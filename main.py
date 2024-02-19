@@ -105,14 +105,21 @@ def run(args):
         print(create_flag, 'time taken:', (end-start)/60)
         dataset = load_dataset(dataset_save_path)
     else:
-        if os.path.exists(dataset_save_path):
-            dataset = load_dataset(dataset_save_path)
+        if args.train_vq or args.train_dm:
+            if os.path.exists(dataset_save_path):
+                dataset = load_dataset(dataset_save_path)
+            else:
+                dataset = create_dataset(dataset_list=lis, 
+                                        batch_size=args.bs, 
+                                        dataset_save_path=dataset_save_path, 
+                                        augment_flag=args.augment,
+                                        save_flag=args.create_dataset)
         else:
             dataset = create_dataset(dataset_list=lis, 
-                                    batch_size=args.bs, 
-                                    dataset_save_path=dataset_save_path, 
-                                    augment_flag=args.augment,
-                                    save_flag=args.create_dataset)
+                                        batch_size=args.bs, 
+                                        dataset_save_path=dataset_save_path, 
+                                        augment_flag=args.augment,
+                                        save_flag=args.create_dataset)
     
     if args.train_vq:
         train_size = int((1 - args.val_perc) * dataset.cardinality().numpy())
@@ -216,8 +223,7 @@ def run(args):
 
         model.load_weights(os.path.join(
             '/N/slate/aajais/checkpoints-vqvae-monai-scaled-128', args.suffix, str(args.test_epoch)+'.ckpt'))
-        test_dataset = dataset.batch(args.bs).prefetch(
-            tf.data.experimental.AUTOTUNE)
+        test_dataset = dataset.batch(args.bs).prefetch(tf.data.experimental.AUTOTUNE)
 
         directory = f'/N/slate/aajais/reconst-vqvae-monai-scaled-128/{args.suffix}/'
         if not os.path.exists(directory):
