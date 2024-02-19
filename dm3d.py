@@ -167,15 +167,40 @@ class TimeEmbedding(layers.Layer):
         super().__init__(**kwargs)
         self.dim = dim
         self.half_dim = dim // 2
-        self.emb = math.log(10000) / (self.half_dim - 1)
+        self.max_period = 10000
+        self.emb = math.log(self.max_period) / (self.half_dim - 1)
         self.emb = tf.exp(
             tf.range(self.half_dim, dtype=tf.float32) * -self.emb)
+        # freqs = tf.exp(-math.log(max_period) * tf.arange(start=0, end=self.half_dim, dtype=tf.float32) / self.half_dim)
 
     def call(self, inputs):
         inputs = tf.cast(inputs, dtype=tf.float32)
         emb = inputs[:, None] * self.emb[None, :]
         emb = tf.concat([tf.sin(emb), tf.cos(emb)], axis=-1)
         return emb
+
+
+class Betas:
+    def __init__(self, timesteps):
+        beta = np.linspace(0.0001, 0.02, timesteps)
+        alpha = 1 - beta
+        sqrt_alpha = np.sqrt(alpha)
+        alpha_bar = np.cumprod(alpha, 0)
+        alpha_bar_prev = np.append(1.0, alpha_bar[:-1])
+        sqrt_alpha_bar = np.sqrt(alpha_bar)
+        sqrt_alpha_bar_prev = np.sqrt(alpha_bar_prev)
+        sqrt_one_minus_alpha_bar = np.sqrt(1-alpha_bar)
+
+        self.beta = tf.constant(beta, dtype=tf.float32)
+        self.alpha = tf.constant(alpha, dtype=tf.float32)
+        self.sqrt_alpha = tf.constant(sqrt_alpha, dtype=tf.float32)
+        self.alpha_bar = tf.constant(alpha_bar, dtype=tf.float32)
+        self.alpha_bar_prev = tf.constant(alpha_bar_prev, dtype=tf.float32)
+        self.sqrt_alpha_bar = tf.constant(sqrt_alpha_bar, dtype=tf.float32)
+        self.sqrt_alpha_bar_prev = tf.constant(
+            sqrt_alpha_bar_prev, dtype=tf.float32)
+        self.sqrt_one_minus_alpha_bar = tf.constant(
+            sqrt_one_minus_alpha_bar, dtype=tf.float32)
 
 
 def ResidualBlock(width, groups=8, activation_fn=keras.activations.swish):
@@ -480,24 +505,3 @@ class DiffusionModel(keras.Model):
         # return images
 
 
-class Betas:
-    def __init__(self, timesteps):
-        beta = np.linspace(0.0001, 0.02, timesteps)
-        alpha = 1 - beta
-        sqrt_alpha = np.sqrt(alpha)
-        alpha_bar = np.cumprod(alpha, 0)
-        alpha_bar_prev = np.append(1.0, alpha_bar[:-1])
-        sqrt_alpha_bar = np.sqrt(alpha_bar)
-        sqrt_alpha_bar_prev = np.sqrt(alpha_bar_prev)
-        sqrt_one_minus_alpha_bar = np.sqrt(1-alpha_bar)
-
-        self.beta = tf.constant(beta, dtype=tf.float32)
-        self.alpha = tf.constant(alpha, dtype=tf.float32)
-        self.sqrt_alpha = tf.constant(sqrt_alpha, dtype=tf.float32)
-        self.alpha_bar = tf.constant(alpha_bar, dtype=tf.float32)
-        self.alpha_bar_prev = tf.constant(alpha_bar_prev, dtype=tf.float32)
-        self.sqrt_alpha_bar = tf.constant(sqrt_alpha_bar, dtype=tf.float32)
-        self.sqrt_alpha_bar_prev = tf.constant(
-            sqrt_alpha_bar_prev, dtype=tf.float32)
-        self.sqrt_one_minus_alpha_bar = tf.constant(
-            sqrt_one_minus_alpha_bar, dtype=tf.float32)

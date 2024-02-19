@@ -3,8 +3,8 @@
 #SBATCH -J dm3d_B8_500
 #SBATCH -p gpu
 #SBATCH --account r00230
-#SBATCH -o dm3d-B8-500-all.output
-#SBATCH -e dm3d-B8-500-all.err
+#SBATCH -o dm3d-B8-500-all-17.output
+#SBATCH -e dm3d-B8-500-all-17.err
 #SBATCH -n 2
 #SBATCH --mem=96G
 #SBATCH -t 2-00:00:00
@@ -12,7 +12,7 @@
 #SBATCH --mail-user=aajais@iu.edu
 #SBATCH --gpus-per-node=4
 
-module load deeplearning/.2.9.1
+module load python/gpu/3.10.10 
 
 # python main.py --train_dm --lbs 1 --vqvae_load_ckpt /N/slate/varbayan/checkpoints-vqvae-monai/B5/131.ckpt --timesteps 500
 

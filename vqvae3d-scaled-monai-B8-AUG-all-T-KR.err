@@ -1,0 +1,116 @@
+Traceback (most recent call last):
+  File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 426, in <module>
+    run(args)
+  File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 306, in run
+    model.fit(
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/utils/traceback_utils.py", line 70, in error_handler
+    raise e.with_traceback(filtered_tb) from None
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/tensorflow/python/eager/execute.py", line 52, in quick_execute
+    tensors = pywrap_tfe.TFE_Py_Execute(ctx._handle, device_name, op_name,
+tensorflow.python.framework.errors_impl.InvalidArgumentError: Graph execution error:
+
+5 root error(s) found.
+  (0) INVALID_ARGUMENT:  TypeError: cannot unpack non-iterable NoneType object
+Traceback (most recent call last):
+
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/tensorflow/python/ops/script_ops.py", line 267, in __call__
+    ret = func(*args)
+
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/tensorflow/python/autograph/impl/api.py", line 642, in wrapper
+    return func(*args, **kwargs)
+
+  File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 130, in augmentDatasetHelperFunc
+    augmented_transform_vol, augmented_mask = flip_axis_0(transform_vol, mask)
+
+TypeError: cannot unpack non-iterable NoneType object
+
+
+	 [[{{node PyFunc}}]]
+	 [[MultiDeviceIteratorGetNextFromShard]]
+	 [[RemoteCall]]
+	 [[IteratorGetNextAsOptional]]
+	 [[group_deps_1/_361]]
+	 [[div_no_nan/_279]]
+  (1) INVALID_ARGUMENT:  TypeError: cannot unpack non-iterable NoneType object
+Traceback (most recent call last):
+
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/tensorflow/python/ops/script_ops.py", line 267, in __call__
+    ret = func(*args)
+
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/tensorflow/python/autograph/impl/api.py", line 642, in wrapper
+    return func(*args, **kwargs)
+
+  File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 130, in augmentDatasetHelperFunc
+    augmented_transform_vol, augmented_mask = flip_axis_0(transform_vol, mask)
+
+TypeError: cannot unpack non-iterable NoneType object
+
+
+	 [[{{node PyFunc}}]]
+	 [[MultiDeviceIteratorGetNextFromShard]]
+	 [[RemoteCall]]
+	 [[IteratorGetNextAsOptional]]
+	 [[group_deps_1/_361]]
+  (2) INVALID_ARGUMENT:  TypeError: cannot unpack non-iterable NoneType object
+Traceback (most recent call last):
+
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/tensorflow/python/ops/script_ops.py", line 267, in __call__
+    ret = func(*args)
+
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/tensorflow/python/autograph/impl/api.py", line 642, in wrapper
+    return func(*args, **kwargs)
+
+  File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 130, in augmentDatasetHelperFunc
+    augmented_transform_vol, augmented_mask = flip_axis_0(transform_vol, mask)
+
+TypeError: cannot unpack non-iterable NoneType object
+
+
+	 [[{{node PyFunc}}]]
+	 [[MultiDeviceIteratorGetNextFromShard]]
+	 [[RemoteCall]]
+	 [[IteratorGetNextAsOptional]]
+	 [[div_no_nan_placeholder_1/_167]]
+  (3) INVALID_ARGUMENT:  TypeError: cannot unpack non-iterable NoneType object
+Traceback (most recent call last):
+
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/tensorflow/python/ops/script_ops.py", line 267, in __call__
+    ret = func(*args)
+
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/tensorflow/python/autograph/impl/api.py", line 642, in wrapper
+    return func(*args, **kwargs)
+
+  File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 130, in augmentDatasetHelperFunc
+    augmented_transform_vol, augmented_mask = flip_axis_0(transform_vol, mask)
+
+TypeError: cannot unpack non-iterable NoneType object
+
+
+	 [[{{node PyFunc}}]]
+	 [[MultiDeviceIteratorGetNextFromShard]]
+	 [[RemoteCall]]
+	 [[IteratorGetNextAsOptional]]
+	 [[cond/output/_16/_108]]
+  (4) INVALID_ARGUMENT:  TypeError: cannot unpack non-iterable NoneType object
+Traceback (most recent call last):
+
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/tensorflow/python/ops/script_ops.py", line 267, in __call__
+    ret = func(*args)
+
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/tensorflow/python/autograph/impl/api.py", line 642, in wrapper
+    return func(*args, **kwargs)
+
+  File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 130, in augmentDatasetHelperFunc
+    augmented_transform_vol, augmented_mask = flip_axis_0(transform_vol, mask)
+
+TypeError: cannot unpack non-iterable NoneType object
+
+
+	 [[{{node PyFunc}}]]
+	 [[MultiDeviceIteratorGetNextFromShard]]
+	 [[RemoteCall]]
+	 [[IteratorGetNextAsOptional]]
+0 successful operations.
+0 derived errors ignored. [Op:__inference_train_function_79225]
+slurmstepd: error: *** JOB 3206177 ON g20 CANCELLED AT 2024-02-16T14:28:26 ***
+slurmstepd: error: *** JOB 3206183 ON g16 CANCELLED AT 2024-02-17T18:23:39 ***

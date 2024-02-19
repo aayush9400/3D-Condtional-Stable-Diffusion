@@ -1,0 +1,89 @@
+Traceback (most recent call last):
+  File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 304, in <module>
+    run(args)
+  File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 183, in run
+    model.fit(
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/utils/traceback_utils.py", line 70, in error_handler
+    raise e.with_traceback(filtered_tb) from None
+  File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/tensorflow/python/eager/execute.py", line 52, in quick_execute
+    tensors = pywrap_tfe.TFE_Py_Execute(ctx._handle, device_name, op_name,
+tensorflow.python.framework.errors_impl.UnknownError: Graph execution error:
+
+Detected at node 'NcclAllReduce_3' defined at (most recent call last):
+    File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 304, in <module>
+      run(args)
+    File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 183, in run
+      model.fit(
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/utils/traceback_utils.py", line 65, in error_handler
+      return fn(*args, **kwargs)
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/engine/training.py", line 1685, in fit
+      tmp_logs = self.train_function(iterator)
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/engine/training.py", line 1284, in train_function
+      return step_function(self, iterator)
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/engine/training.py", line 1268, in step_function
+      outputs = model.distribute_strategy.run(run_step, args=(data,))
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/optimizers/utils.py", line 175, in _all_reduce_sum_fn
+      return distribution.extended.batch_reduce_to(
+Node: 'NcclAllReduce_3'
+Detected at node 'NcclAllReduce_1' defined at (most recent call last):
+    File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 304, in <module>
+      run(args)
+    File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 183, in run
+      model.fit(
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/utils/traceback_utils.py", line 65, in error_handler
+      return fn(*args, **kwargs)
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/engine/training.py", line 1685, in fit
+      tmp_logs = self.train_function(iterator)
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/engine/training.py", line 1284, in train_function
+      return step_function(self, iterator)
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/engine/training.py", line 1268, in step_function
+      outputs = model.distribute_strategy.run(run_step, args=(data,))
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/optimizers/utils.py", line 175, in _all_reduce_sum_fn
+      return distribution.extended.batch_reduce_to(
+Node: 'NcclAllReduce_1'
+Detected at node 'NcclAllReduce_1' defined at (most recent call last):
+    File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 304, in <module>
+      run(args)
+    File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 183, in run
+      model.fit(
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/utils/traceback_utils.py", line 65, in error_handler
+      return fn(*args, **kwargs)
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/engine/training.py", line 1685, in fit
+      tmp_logs = self.train_function(iterator)
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/engine/training.py", line 1284, in train_function
+      return step_function(self, iterator)
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/engine/training.py", line 1268, in step_function
+      outputs = model.distribute_strategy.run(run_step, args=(data,))
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/optimizers/utils.py", line 175, in _all_reduce_sum_fn
+      return distribution.extended.batch_reduce_to(
+Node: 'NcclAllReduce_1'
+Detected at node 'NcclAllReduce_1' defined at (most recent call last):
+    File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 304, in <module>
+      run(args)
+    File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 183, in run
+      model.fit(
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/utils/traceback_utils.py", line 65, in error_handler
+      return fn(*args, **kwargs)
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/engine/training.py", line 1685, in fit
+      tmp_logs = self.train_function(iterator)
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/engine/training.py", line 1284, in train_function
+      return step_function(self, iterator)
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/engine/training.py", line 1268, in step_function
+      outputs = model.distribute_strategy.run(run_step, args=(data,))
+    File "/N/soft/rhel8/deeplearning/Python-3.10.10/lib/python3.10/site-packages/keras/optimizers/utils.py", line 175, in _all_reduce_sum_fn
+      return distribution.extended.batch_reduce_to(
+Node: 'NcclAllReduce_1'
+4 root error(s) found.
+  (0) UNKNOWN:  Error invoking NCCL: unhandled cuda error
+	 [[{{node NcclAllReduce_3}}]]
+  (1) UNKNOWN:  Error invoking NCCL: unhandled cuda error
+	 [[{{node NcclAllReduce_1}}]]
+	 [[GroupCrossDeviceControlEdges_1/NoOp/_285]]
+	 [[group_deps/_269]]
+  (2) UNKNOWN:  Error invoking NCCL: unhandled cuda error
+	 [[{{node NcclAllReduce_1}}]]
+	 [[GroupCrossDeviceControlEdges_1/NoOp/_285]]
+  (3) UNKNOWN:  Error invoking NCCL: unhandled cuda error
+	 [[{{node NcclAllReduce_1}}]]
+0 successful operations.
+0 derived errors ignored. [Op:__inference_train_function_79104]

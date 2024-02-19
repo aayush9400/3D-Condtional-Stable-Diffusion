@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/main.py", line 13, in <module>
+    from dataset_utils import create_dataset, load_dataset
+  File "/geode2/home/u010/aajais/Quartz/SyntheticMRI/dataset_utils.py", line 7, in <module>
+    from fury.actor import slicer
+ModuleNotFoundError: No module named 'fury'
+WARNING:tensorflow:Can save best model only with val_loss available, skipping.
+slurmstepd: error: *** JOB 3206175 ON g19 CANCELLED AT 2024-02-17T18:29:34 ***
