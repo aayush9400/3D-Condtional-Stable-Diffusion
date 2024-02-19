@@ -71,19 +71,21 @@ def load_transform_img(path):
     vol, affine, voxsize = load_nifti(path, return_voxsize=True)
     if 'CC359' in path:
         mask, _ = load_nifti(path.replace('Original', 'STAPLE').replace('.nii.gz', '_staple.nii.gz'))
+        vol = vol*mask # zero out the background or non-region of interest areas.
     elif 'NFBS' in path:
         mask, _ = load_nifti(path[:-7]+'mask.nii.gz')
+        vol = vol*mask # zero out the background or non-region of interest areas.
     elif 'BraTS2021' in path:
         vol = vol.astype(np.float32)
         mask, _ = load_nifti(path.replace('t1.nii.gz', 'seg.nii.gz'))
         mask = mask.astype(np.float32)
     else:
         # HCP Dataset
-        transform_vol = vol
         mask, _ = load_nifti(path.replace('/T1/', '/T1_masks_evac/'))
+        vol = vol*mask # zero out the background or non-region of interest areas.
+        transform_vol = vol
 
     mask[mask < 1] = 0  # Values <1 in the mask is background
-    vol = vol*mask # zero out the background or non-region of interest areas.
 
     if 'CC359' in path or 'NFBS' in path:
         if mask is not None:
@@ -137,22 +139,9 @@ def create_dataset(dataset_list,
                    dataset_save_path='/N/slate/aajais/skullstripping_datasets/training_data/', 
                    augment_flag=False,
                    save_flag=False):
+    
     aug_size = int(len(dataset_list)*0.04)
-    # img_dataset = [] # tf.zeros([len(dataset_list), 128, 128, 128, 1])
-    # aug_img_dataset = [] # tf.zeros([aug_size, 128, 128, 128, 1])
-
-    # for path in tqdm(dataset_list, total=len(dataset_list)):
-    #     img_dataset.append(datasetHelperFunc(path))
     aug_path_list = random.sample(dataset_list, aug_size*batch_size)
-    # for path in tqdm(aug_path_list, total=len(aug_path_list)):
-    #     aug_img_dataset.append(augmentDatasetHelperFunc(path))
-
-    # print("Number of augmented images: ", aug_img_dataset.shape[0])
-
-    # img_dataset = img_dataset.append(aug_img_dataset)
-    
-    # dataset = tf.data.Dataset.from_tensor_slices(tf.stack(img_dataset))
-    
     
     dataset = tf.data.Dataset.from_tensor_slices(dataset_list)
     # print(dataset.cardinality().numpy())
