@@ -37,8 +37,6 @@ We ran multiple 3D VQVAE experiments with varying hyper-parameters (downsampling
 
 To improve the efficacy of VQVAE latents further, we adopted MONAI's encoder-decoder architecture, that has residual connection after every convolutional layer. This model increases the complexity through skip connections facilitating the flow of non-zero gradients in backpropagation. This resulted in high qualitative & quantitative reconstructions.
 
-A summary of all the experiements & outputs have been highlighted in [this GitHub Gist](https://gist.github.com/lb-97/57347e7d06d87a0aa3b77887631f33bc)
-
 
 
 
