@@ -4,16 +4,13 @@ import os
 import gc
 import glob
 import numpy as np
-import random
 from tqdm import tqdm
 
 import tensorflow as tf
 from tensorflow import keras
-import tensorflow_datasets as tfds
 
 from dataset_utils import create_dataset, load_dataset
-from networks.vqvae3d_monai import VQVAE, ReplaceCodebookCallback
-from networks.dm3d import DiffusionModel
+from networks.nsvqvae import VQVAE, ReplaceCodebookCallback
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow logging (1 = INFO, 2 = WARNING, 3 = ERROR)
 tf.get_logger().setLevel('ERROR')
@@ -86,7 +83,7 @@ def run(args):
     print(tf.config.list_logical_devices())
 
     args.bs = args.lbs * args.num_gpus
-    args.suffix = "B" + str(args.bs)
+    args.suffix = "B" + str(args.bs) 
 
     if args.kernel_resize:
         args.suffix += "-KR"
@@ -112,13 +109,23 @@ def run(args):
     print(args)
 
     lis = dataset_list[: -args.test_size] if args.test_size > 0 else dataset_list[:]
-    if args.test_vq or args.test_dm:
+    if args.test_vq:
         lis = dataset_list[-args.test_size :]
     print("Total images available for training: ", len(lis))
+    options = tf.data.Options()
+    options.experimental_distribute.auto_shard_policy = (
+        tf.data.experimental.AutoShardPolicy.DATA
+    )
 
     dataset_save_path = (
-        f"/N/slate/aajais/skullstripping_datasets/training_data/with_mask_context_{args.suffix}/"
+        f"/N/slate/aajais/skullstripping_datasets/training_data/{args.suffix}/"
     )
+    if tf.__version__ == "2.12.0":
+        dataset_save_path = (
+            f"/N/slate/aajais/skullstripping_datasets/training_data/B12-KR-AUG-all-T/"
+        )
+    elif tf.__version__ == "2.9.1":
+        dataset_save_path = f"/N/slate/aajais/skullstripping_datasets/training_data/2.9.1/{args.suffix}/"
     if args.create_dataset:
         start = time.time()
         # print(start)
@@ -133,7 +140,7 @@ def run(args):
         print(create_flag, "time taken:", (end - start) / 60)
         dataset = load_dataset(dataset_save_path)
     else:
-        if args.train_vq or args.train_dm:
+        if args.train_vq:
             if os.path.exists(dataset_save_path):
                 dataset = load_dataset(dataset_save_path)
             else:
@@ -150,16 +157,12 @@ def run(args):
                 augment_flag=args.augment,
                 save_flag=args.create_dataset,
             )
-    # dataset = dataset.take(3000)
-    dataset = dataset.shuffle(buffer_size = 2 * args.lbs) 
-    options = tf.data.Options()
-    options.experimental_distribute.auto_shard_policy = (
-        tf.data.experimental.AutoShardPolicy.DATA
-    )
-    args.suffix += f"-{args.exp_name}-"
+    args.suffix += "-NSVQ-"
     if args.train_vq:
         train_size = int((1 - args.val_perc) * dataset.cardinality().numpy())
         train_size = train_size - (train_size % args.bs)
+
+        dataset = dataset.shuffle(buffer_size=10000)
 
         train_dataset = dataset.take(train_size)
         val_dataset = dataset.skip(train_size)
@@ -187,23 +190,21 @@ def run(args):
             model = VQVAE(
                 in_channels=1,
                 out_channels=1,
-                num_channels=(32,64,128),
-                num_res_channels=(32,64,128),
-                num_res_layers=3,
+                num_channels=(32, 64, 128, 256),
+                num_res_channels=(32, 64, 128, 256),
+                num_res_layers=4,
                 # downsample_parameters=(stride, kernel_size, dilation_rate, padding)
                 downsample_parameters=(
                     (2, 4, 1, "same"),
+					(2, 4, 1, "same"),
                     (2, 4, 1, "same"),
                     (2, 4, 1, "same"),
-					# (2, 4, 1, "same"),
-                    # (2, 4, 1, "same"),
                 ),
                 upsample_parameters=(
                     (2, 4, 1, "same", 0),
                     (2, 4, 1, "same", 0),
                     (2, 4, 1, "same", 0),
-					# (2, 4, 1, "same", 0),
-                    # (2, 4, 1, "same", 0),
+					(2, 4, 1, "same", 0),
                 ),
                 num_embeddings=512,
                 embedding_dim=256,
@@ -234,17 +235,17 @@ def run(args):
             )
 
             reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
-                monitor="loss",
-                factor=0.02,
-                patience=5,
+                monitor="quantize_loss",
+                factor=0.001,
+                patience=3,
                 min_lr=1e-6,
                 verbose=1,
             )
 
-            replace_codebook_callback = ReplaceCodebookCallback(model.get_vq_model(), batch_size=args.bs, frequency=10)
+            replace_codebook_callback = ReplaceCodebookCallback(model.get_nsvq_model(), batch_size=args.bs, frequency=5)
 
             if args.test_run:
-                callbacks = [reduce_lr]
+                callbacks = [reduce_lr, replace_codebook_callback]
             else:
                 callbacks = [model_checkpoint_callback, csv_logger, reduce_lr, replace_codebook_callback]
 
@@ -272,65 +273,16 @@ def run(args):
     elif args.test_vq:
         print(f"Testing Scaled VQVAE monai with ckpt - {args.suffix}-{args.test_epoch}")
         with strategy.scope():
-			#best
-            # model = VQVAE(
-            #     in_channels=1,
-            #     out_channels=1,
-            #     num_channels=(32, 64, 128),
-            #     num_res_channels=(32, 64, 128),
-            #     num_res_layers=3,
-            #     downsample_parameters=(
-            #         (2, 4, 1, "same"),
-            #         (2, 4, 1, "same"),
-            #         (2, 4, 1, "same"),
-            #     ),
-            #     upsample_parameters=(
-            #         (2, 4, 1, "same", 0),
-            #         (2, 4, 1, "same", 0),
-            #         (2, 4, 1, "same",0),
-            #     ),
-            #     num_embeddings=256,
-            #     embedding_dim=64,
-            #     num_gpus=args.num_gpus,
-            #     kernel_resize=args.kernel_resize,
-            # )
-			#dm
-#             model = VQVAE(
-#                 in_channels=1,
-#                 out_channels=1,
-#                 num_channels=(32, 64, 128,256),
-#                 num_res_channels=(32, 64, 128,256),
-#                 num_res_layers=5,
-#                 # downsample_parameters=(stride, kernel_size, dilation_rate, padding)
-#                 downsample_parameters=(
-#                     (2, 4, 1, "same"),
-#                     (2, 4, 1, "same"),
-#                     (2, 4, 1, "same"),
-# 					(2, 4, 1, "same"),
-#                 ),
-#                 upsample_parameters=(
-#                     (2, 4, 1, "same", 0),
-#                     (2, 4, 1, "same", 0),
-#                     (2, 4, 1, "same", 0),
-# 					(2, 4, 1, "same", 0),
-#                 ),
-#                 num_embeddings=1024,
-#                 embedding_dim=256,
-#                 num_gpus=args.num_gpus,
-#                 kernel_resize=args.kernel_resize,
-#             )
-			#new
             model = VQVAE(
                 in_channels=1,
                 out_channels=1,
-                num_channels=(32, 64, 128,256,512),
-                num_res_channels=(32, 64, 128,256,512),
-                num_res_layers=5,
+                num_channels=(32, 64, 128, 256),
+                num_res_channels=(32, 64, 128, 256),
+                num_res_layers=4,
                 # downsample_parameters=(stride, kernel_size, dilation_rate, padding)
                 downsample_parameters=(
                     (2, 4, 1, "same"),
-                    (2, 4, 1, "same"),
-                    (2, 4, 1, "same"),
+					(2, 4, 1, "same"),
                     (2, 4, 1, "same"),
                     (2, 4, 1, "same"),
                 ),
@@ -338,14 +290,14 @@ def run(args):
                     (2, 4, 1, "same", 0),
                     (2, 4, 1, "same", 0),
                     (2, 4, 1, "same", 0),
-                    (2, 4, 1, "same", 0),
-                    (2, 4, 1, "same", 0),
+					(2, 4, 1, "same", 0),
                 ),
                 num_embeddings=1024,
-                embedding_dim=512,
+                embedding_dim=256,
                 num_gpus=args.num_gpus,
                 kernel_resize=args.kernel_resize,
             )
+
         model.load_weights(
             os.path.join(
                 "/N/slate/aajais/checkpoints-vqvae-monai-scaled-128",
@@ -361,92 +313,13 @@ def run(args):
         loss = []
         for i, (x, _, _) in tqdm(enumerate(test_dataset)):
             np.save(directory + f"{i}-original-{args.suffix}.npy", x.numpy())
-            reconst = model(x)
+            reconst, _ = model(x)
             loss.append(tf.reduce_mean((reconst - x) ** 2))
             print(f"Test Loss is {sum(loss)/len(loss)}")
             np.save(
                 directory + f"{i}-reconst3d-{args.suffix}-epoch{args.test_epoch}.npy",
                 reconst.numpy(),
             )
-    elif args.train_dm:
-        dataset = dataset.batch(args.bs).prefetch(tf.data.experimental.AUTOTUNE)
-
-        print(f"Training DM3D model with VQVAE ckpt - {args.vqvae_load_ckpt}")
-        print("Training quantized latents")
-        with strategy.scope():
-            model = DiffusionModel(
-                latent_size=int(64 / 8),
-                num_embed=1024,
-                latent_channels=256,
-                vqvae_load_ckpt=args.vqvae_load_ckpt,
-                args=args,
-            )
-
-            model.compile(
-                loss=keras.losses.MeanSquaredError(
-                    reduction=tf.keras.losses.Reduction.SUM
-                ),
-                optimizer=keras.optimizers.Adam(learning_rate=args.lr),
-            )
-
-        model_checkpoint_callback = tf.keras.callbacks.ModelCheckpoint(
-            filepath=f"/N/slate/aajais/checkpoints-dm/{args.suffix}/" + "{epoch}.ckpt",
-            save_weights_only=True,
-            save_best_only=args.save_best_only,
-        )
-
-        csv_logger = tf.keras.callbacks.CSVLogger(
-            f"/N/slate/aajais/checkpoints-dm/{args.suffix}/training.log", append=True
-        )
-
-        if args.test_run:
-            callbacks = []
-        else:
-            callbacks = [model_checkpoint_callback, csv_logger]
-
-        initial_epoch = 0
-        if args.resume_ckpt:
-            model.load_weights(
-                os.path.join(
-                    "/N/slate/aajais/checkpoints-dm",
-                    args.suffix,
-                    str(args.resume_ckpt) + ".ckpt",
-                )
-            )
-            initial_epoch = int(args.resume_ckpt)
-            print(f"Resuming Training from {initial_epoch} epoch")
-
-        print("Training Now")
-        model.fit(
-            dataset,
-            epochs=args.epochs,
-            batch_size=args.bs,
-            callbacks=callbacks,
-            initial_epoch=initial_epoch,
-            verbose=1,
-        )
-    elif args.test_dm:
-        print(f"Testing Diffusion Model with ckpt - {args.suffix}-{args.test_epoch}")
-        strategy = tf.distribute.MirroredStrategy()
-        with strategy.scope():
-            model = DiffusionModel(
-                latent_size=int(64 / 4),
-                num_embed=256,
-                latent_channels=64,
-                vqvae_load_ckpt=args.vqvae_load_ckpt,
-                args=args,
-            )
-
-        model.load_weights(
-            os.path.join(
-                "/N/slate/aajais/checkpoints-dm",
-                args.suffix,
-                str(args.test_epoch) + ".ckpt",
-            )
-        )
-        args.suffix += "epoch" + str(args.test_epoch)
-        model.test(args.suffix)
-
 
 if __name__ == "__main__":
     print(tf.__version__)
@@ -459,23 +332,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("--train_vq", action="store_true", help="training flag - VQVAE")
     parser.add_argument(
-        "--train_dm", action="store_true", help="training flag - Diffusion"
-    )
-    parser.add_argument(
         "--dataset",
         type=str,
         default="both",
         help="options for dataset -> HCP, NFBS, CC, BraTS, all, all-T",
     )
-    parser.add_argument(
-        "--exp_name",
-        type=str,
-        default="mask",
-    )
     parser.add_argument("--test_vq", action="store_true", help="testing flag - VQVAE")
-    parser.add_argument(
-        "--test_dm", action="store_true", help="testing flag - Diffusion"
-    )
     parser.add_argument("--lr", type=float, default=1e-4, help="learning rate")
     parser.add_argument("--lbs", type=int, default=5, help="Batch size per gpu")
     parser.add_argument("--epochs", type=int, default=200, help="Epochs")
@@ -496,8 +358,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--test_epoch", type=int)
     parser.add_argument("--save_best_only", default=False, action="store_true")
-    parser.add_argument("--vqvae_load_ckpt", type=str, default=None)
-    parser.add_argument("--timesteps", type=int, default=300)
     parser.add_argument("--resume_ckpt", type=str)
     parser.add_argument("--test_run", default=False, action="store_true")
     args = parser.parse_args()

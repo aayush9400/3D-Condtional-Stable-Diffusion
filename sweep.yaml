@@ -1,0 +1,24 @@
+# sweep.yaml
+program: exp_main.py
+method: bayes  # You can also use random, bayes, etc.
+metric:
+  name: val_loss
+  goal: minimize
+parameters:
+  channel_list:
+    values: ["(32,64,128)", "(32,64,128,256)", "(32,64,128,256,512)"]
+  num_embedding:
+    values: [64, 128, 256, 512, 1024]
+  embedding_dim:
+    values: [64, 128, 256, 512, 1024]
+  lr:
+    value: 0.0001
+  dataset:
+    value: "all-T"  # Fixed value
+  lbs:
+    values: [3,4]  # Fixed value
+  epochs:
+    value: 70  # Fixed value
+  exp_name:
+    value: "gridsearch"  # Fixed value
+

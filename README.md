@@ -3,7 +3,7 @@
 Synthetic MRI generation using StableDiffusion &amp; VQVAE
 
 ## Proposal
-The aim of this project is to contribute to the open source community in synthetic image generation for MRI images, using latent diffusion modelling inspired by [Denoised Diffusion Probabilistic Models](https://arxiv.org/pdf/2006.11239.pdf) &amp; [Stable Diffusion](https://arxiv.org/abs/2112.10752). 
+The aim of this project is to contribute to the open source community in synthetic image generation for MRI images, using latent diffusion modelling inspired by [Denoised Diffusion Probabilistic Models](https://arxiv.org/pdf/2006.11239.pdf) &amp; [Stable Diffusion](https://arxiv.org/abs/2112.10752). Further we aim to condition the diffusion models on various parameters.
 
 The advantages of Diffusion Models have been witnessed only recently in the field of Medical imaging, leaving scope for more exploration. We aim to produce large size synthetic datasets that could be used to pre-train data hungry Transformer models for downstream tasks. This could help avoid training models on small medical datasets collected from different machines with varying parameters, nor rely on Imagenet pre-trained models that suffer from change in domain distributional shift.
 
@@ -22,21 +22,20 @@ That's why the whole training methodology is also called denoised score matching
 This is taken a notch up by carrying out training in latent space, inspired by Stable Diffusion. This paper proves that seperating training of perceptual compression(downsampling original dimension to latent space dimension) & denoising mechanism results in stable training, hence the name 'Stable Diffusion'. Perceptual compression is achieved through encoder-decoder models such as KL-VAE, VQ-VAE. VQ-VAE model addresses ['Posterior collapse'](https://github.com/lb-97/GenerativeAI-VQVAE-MNIST/blob/main/README.md) observed in traditional VAEs by effectively utilizing the latent space. For our problem statement, we pre-train VQ-VAE on same medical datasets until training curve is stabilized & converged. 
 
 ## Models
-As the first step in training, we designed a 3D VQVAE that consists of an encoder, decoder, and a quantizer. Encoder downsamples the input thrice using strided convolutions each followed by ``relu`` non-linear units. So an input size of (128,128,128,1) is reduced to (16,16,16,16) with latent_dim=16, the number of channels in the latents. The quantizer is initialized to a learnable embedding matrix of size 16*128 i.e., 128 embeddings each of size latent_dim=16. It is trained to quantize encoder outputs to the closest of these embeddings using L2 loss function. The decoder consists of upsampling layers using transposed convolutions each followed by ``relu`` non-linear units. 
+As the first step in training, we designed a 3D VQVAE that consists of an encoder, decoder, and a quantizer. Encoder downsamples the input thrice using strided convolutions each followed by ``relu`` non-linear units. It is trained to quantize encoder outputs to the closest of these embeddings using L2 loss function. The decoder consists of upsampling layers using transposed convolutions each followed by ``relu`` non-linear units. 
 
-The model is trained to minimize the sum of reconstruction loss & quantization loss. The architecture of the model is inspired by [tensorflow's official implementation of VQ-VAE for 2D images](https://keras.io/examples/generative/vq_vae/). This model has been tested on MNIST dataset and the reconstruction results can be seen [here](https://github.com/lb-97/GenerativeAI-VQVAE-MNIST/blob/main/README.md#Results).
+The model is trained to minimize the sum of reconstruction loss & quantization loss. The architecture of the model is inspired by [tensorflow's official implementation of VQ-VAE for 2D images](https://keras.io/examples/generative/vq_vae/).
 
-The basic code blocks of the U-Net of the Diffusion Model are Downsampling, Middle and Upsampling blocks, where each constitute ResidualBlock & AttentionBlock. ResidualBlock is additionally conditioned on the diffusion timestep, DDPM implements this conditioning by adding diffusion timestep to the input image, whereas DDIM performs a concatenation.
+The basic code blocks of the U-Net of the Diffusion Model are Downsampling, Middle and Upsampling blocks, where each constitute ResidualBlock & AttentionBlock or CrossAttentionBlock. ResidualBlock is additionally conditioned on the diffusion timestep, DDPM implements this conditioning by adding diffusion timestep to the input image, whereas DDIM performs a concatenation.
 
 Downsampling & Upsampling in the U-Net are performed 4 times with decreasing & increasing widths respectively. Each downsampling layer consists of two ResidualBlocks, an optional AttentionBlock and a convolutional downsampling(stride=2) layer. At each upsampling layer, there's a concatenation from the respective downsampling layer, three ResidualBlocks, an optional AttentionBlock, ``keras.layers.Upsampling2D`` and a Conv2D layers. The Middle block consists of two ResidualBlocks with an AttentionBlock in between, resulting in no change in the output size. The final output of the Upsampling block is followed by a GroupNormalization layer, Swish Activation layer and Conv2D layer to provide an output with desired dimensions.
 
 The U-Net model is trained to minimize the noise predicted at every timestep for every image. We produce latents from VQVAE and train unconditional U-Net in latent dimension to produce better generations than that of VQVAE. This model has been tested on MNIST dataset and the generations obtained can be seen [here](https://github.com/dipy/dipy/blob/master/doc/_static/DM-MNIST-DDIM300-108epoch.png).
 
 ## Experiments
-We ran multiple 3D VQVAE experiments with varying hyper-parameters (downsampling factor f, batch_size B) on [NFBS dataset](http://preprocessed-connectomes-project.org/NFB_skullstripped/). The best results achieved are for [f=3 & B=10](https://github.com/dipy/dipy/blob/master/doc/_static/vqvae-f3-higher-epochs.png). The diffusion model results on these trained latents were noisy images with no insights into the generations.
+We ran multiple 3D VQVAE experiments with varying hyper-parameters which can be viewed [here](https://api.wandb.ai/links/dipy_genai/dzrwwnai) which has a summary of all the experiements & outputs.
 
 To improve the efficacy of VQVAE latents further, we adopted MONAI's encoder-decoder architecture, that has residual connection after every convolutional layer. This model increases the complexity through skip connections facilitating the flow of non-zero gradients in backpropagation. This resulted in high qualitative & quantitative reconstructions.
-
 
 
 
