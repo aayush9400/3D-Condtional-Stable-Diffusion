@@ -355,7 +355,7 @@ def build_model(
     temb = TimeEmbedding(dim=first_conv_channels * 4)(time_input)
     temb = TimeMLP(units=first_conv_channels * 4, activation_fn=activation_fn)(temb)
     
-    cemb = layers.Embedding(context_dim, first_conv_channels * 4)(context_input)
+    cemb = layers.Embedding(context_dim+1, first_conv_channels * 4)(context_input)
     # cemb.trainable = False
     # x = tf.concat([x, down_cemb], axis=-1)
     skips = [x]
