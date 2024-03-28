@@ -14,7 +14,7 @@ import tensorflow_datasets as tfds
 
 from dataset_utils import create_dataset, load_dataset
 from networks.vqvae3d_monai import VQVAE, ReplaceCodebookCallback
-from networks.vqvae3d_monai import WandbImageCallback
+from training_utils import WandbImageCallback
 from networks.dm3d import DiffusionModel
 
 import wandb
@@ -114,7 +114,8 @@ def build_and_compile_model(channel_list, num_embedding, embedding_dim, args, st
 
 
 def run_experiment(args, strategy, train_dataset, val_dataset):
-    wandb.init(project='vqvae', entity='dipy_genai', name=args.suffix)
+    run_name = f"{args.channel_list}|{args.num_embedding}x{args.embedding_dim}|{args.bs}" 
+    wandb.init(project='vqvae', entity='dipy_genai', name=run_name)
     # Use wandb.config to access the hyperparameters
     channels = eval(args.channel_list)  # Convert string to tuple
     num_embedding = args.num_embedding
@@ -127,6 +128,7 @@ def run_experiment(args, strategy, train_dataset, val_dataset):
         + "{epoch}.ckpt",
         save_weights_only=True,
         save_best_only=args.save_best_only,
+        period=10
     )
 
     csv_logger = tf.keras.callbacks.CSVLogger(
@@ -146,7 +148,7 @@ def run_experiment(args, strategy, train_dataset, val_dataset):
     wandbImage = WandbImageCallback(model, val_dataset, log_freq=10)
 
     if args.test_run:
-        callbacks = [reduce_lr, replace_codebook_callback, model_checkpoint_callback]
+        callbacks = [reduce_lr, WandbCallback(save_model=False), wandbImage]
     else:
         if args.replace_codebook>0:
             callbacks = [reduce_lr, WandbCallback(save_model=False), wandbImage, model_checkpoint_callback, replace_codebook_callback]
@@ -258,7 +260,7 @@ def run(args):
     print("Total images available for training: ", len(lis))
 
     dataset_save_path = (f"/N/slate/aajais/skullstripping_datasets/training_data/with_mask_context_B12-KR-AUG-all-T/")
-    dataset_save_path = (f"/N/slate/aajais/skullstripping_datasets/training_data/with_mask_context_{args.suffix}/")
+    # dataset_save_path = (f"/N/slate/aajais/skullstripping_datasets/training_data/with_mask_context_{args.suffix}/")
     if args.create_dataset:
         start = time.time()
         # print(start)
@@ -290,7 +292,7 @@ def run(args):
                 augment_flag=args.augment,
                 save_flag=args.create_dataset,
             )
-    dataset = dataset.take(20)
+    # dataset = dataset.take(20)
     dataset = dataset.shuffle(buffer_size = 2 * args.lbs) 
     options = tf.data.Options()
     options.experimental_distribute.auto_shard_policy = (
