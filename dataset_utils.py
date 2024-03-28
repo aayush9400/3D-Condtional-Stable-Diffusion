@@ -101,7 +101,7 @@ def load_transform_img(path):
         transform_vol = vol
         mask = np.zeros_like(transform_vol)
 
-    if "CC359" in path or "NFBS" in path:
+    if not "BraTS2021" in path:
         transform_vol, _ = transform_image(vol, affine, voxsize)
         mask = np.zeros_like(transform_vol)
     elif "BraTS2021" in path:
