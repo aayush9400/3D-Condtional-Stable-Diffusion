@@ -12,3 +12,7 @@ checkpoints-vqvae-monai-scaled-128/
 reconst-vqvae-monai-scaled-128/
 *.txt
 .ipynb_checkpoints/
+*.data*
+*.index
+*checkpoint
+token.txt

@@ -608,45 +608,39 @@ class VQGAN(keras.Model):
             reconstructions, perplexity = self(x)
             img_recon, mask_reconstructed = tf.split(reconstructions, num_or_size_splits=2, axis=-1)
 
-            # Get random Slices
             frame_idx = tf.random.uniform(shape=(self.B,), minval=50, maxval=108, dtype=tf.int32)
             batch_range = tf.range(self.B)
             indices = tf.stack([batch_range, frame_idx], axis=1)
-        
+
             frames = tf.gather_nd(img, indices)
             frames_lpips = tf.concat([frames, frames, frames], axis=-1)
             frames_recon = tf.gather_nd(img_recon, indices)
             frames_recon_lpips = tf.concat([frames_recon, frames_recon, frames_recon], axis=-1)
 
-            # Perceptual Loss
             perceptual_loss = self.lpips([frames_lpips, frames_recon_lpips]) * 4
             
             real_logits = self.discriminator(img, training=True)
             fake_logits = self.discriminator(img_recon, training=True)
+
             real_logits_2d = self.discriminator_2d(frames, training=True)
             fake_logits_2d = self.discriminator_2d(frames_recon, training=True)
 
-            # 3D Gen Loss
             g_loss_adv = self.disc_loss_fn(tf.ones_like(fake_logits), fake_logits)
             g_loss_recon = tf.reduce_mean((img - img_recon)**2)
-            # 2D Gen Loss
             g_loss_adv_2d = self.disc_loss_fn(tf.ones_like(fake_logits_2d), fake_logits_2d)
             g_loss_recon_2d = tf.reduce_mean((frames - frames_recon)**2)
-            # Overall Gen Loss
-            g_loss = (g_loss_adv + g_loss_recon) + (g_loss_adv_2d + g_loss_recon_2d) * 0.5
+            g_loss = (g_loss_adv + g_loss_recon) + (g_loss_adv_2d + g_loss_recon_2d)
 
-            # 3D Disc Loss
             disc_loss_real = self.disc_loss_fn(tf.ones_like(real_logits), real_logits)
             disc_loss_fake = self.disc_loss_fn(tf.zeros_like(fake_logits), fake_logits)
-            # 2D Disc Loss
             disc_loss_real_2d = self.disc_loss_fn(tf.ones_like(real_logits_2d), real_logits_2d)
             disc_loss_fake_2d = self.disc_loss_fn(tf.zeros_like(fake_logits_2d), fake_logits_2d)
-            # Overall Disc Loss
-            disc_loss = (disc_loss_real + disc_loss_fake) + (disc_loss_real_2d + disc_loss_fake_2d) * 0.5
+            disc_loss = (disc_loss_real + disc_loss_fake) + (disc_loss_real_2d + disc_loss_fake_2d)
             disc_loss = disc_loss / self.num_gpus
-            
-            # Reconstruction MSE
-            reconstruction_loss = tf.reduce_mean((img_recon-img)**2)
+
+            reconstruction_loss_3d = tf.reduce_mean((img_recon-img)**2)
+            # reconstruction_loss_2d = tf.reduce_mean((frames_recon-frames)**2)
+            reconstruction_loss = reconstruction_loss_3d # + reconstruction_loss_2d
 
             l = reconstruction_loss + self.quantizer.losses + g_loss + perceptual_loss
             l = l/self.num_gpus   
