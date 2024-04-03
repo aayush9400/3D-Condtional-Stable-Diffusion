@@ -101,20 +101,22 @@ def build_and_compile_model(channel_list, num_embedding, embedding_dim, args, st
             embedding_dim=embedding_dim,
             num_gpus=args.num_gpus,
             kernel_resize=args.kernel_resize,
+            dropout=args.dropout,
+            B=args.bs
         )
 
         x = tf.keras.layers.Input(shape=(128, 128, 128, 2))
         m = tf.keras.Model(inputs=[x], outputs=model(x))
         print(m.summary())
         model.compile(vqvae_optimizer=keras.optimizers.Adam(learning_rate=args.lr),
-                      discriminator_optimizer=keras.optimizers.Adam(learning_rate=args.lr))
+                      discriminator_optimizer=keras.optimizers.Adam(learning_rate=1e-05))
 
     return model
 
 
 def run_experiment(args, strategy, train_dataset, val_dataset):
     run_name = f"{args.channel_list}|{args.num_embedding}x{args.embedding_dim}|{args.bs}" 
-    wandb.init(project='vqgan', entity='dipy_genai', name=run_name)
+    wandb.init(project='vqgan', entity='dipy_genai', name=run_name, config=args)
     # Use wandb.config to access the hyperparameters
     channels = eval(args.channel_list)  # Convert string to tuple
     num_embedding = args.num_embedding
@@ -166,7 +168,7 @@ def run_experiment(args, strategy, train_dataset, val_dataset):
     print("Training Now")
     
     # Train the model
-    history = model.fit(
+    model.fit(
         x=train_dataset,
         epochs=args.epochs,
         batch_size=args.bs,
@@ -218,8 +220,8 @@ def run(args):
         lis = dataset_list[-args.test_size :]
     print("Total images available for training: ", len(lis))
 
-    # dataset_save_path = (f"/N/slate/aajais/skullstripping_datasets/training_data/with_mask_context_B12-KR-AUG-all-T/")
-    dataset_save_path = (f"/N/slate/aajais/skullstripping_datasets/training_data/with_mask_context_B12-KR-AUG-all/")
+    dataset_save_path = (f"/N/slate/aajais/skullstripping_datasets/training_data/with_mask_context_B12-KR-AUG-all-T/")
+    # dataset_save_path = (f"/N/slate/aajais/skullstripping_datasets/training_data/with_mask_context_B12-KR-AUG-all/")
     if args.create_dataset:
         start = time.time()
         # print(start)
@@ -251,9 +253,11 @@ def run(args):
                 augment_flag=args.augment,
                 save_flag=args.create_dataset,
             )
-
+    if args.test_run:
+        dataset = dataset.take(3 * args.bs)
+    else:
+        dataset = dataset.take(3000)
     dataset = dataset.shuffle(buffer_size = 2 * args.lbs) 
-    # dataset = dataset.take(20)
     options = tf.data.Options()
     options.experimental_distribute.auto_shard_policy = (
         tf.data.experimental.AutoShardPolicy.DATA
@@ -320,15 +324,9 @@ def run(args):
 if __name__ == "__main__":
     print(tf.__version__)
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--replace_codebook", type=int,default=0,help="Replace Codebook Frequency"
-    )
-    parser.add_argument(
-        "--create_dataset", default=False, action="store_true", help="Create Dataset"
-    )
-    parser.add_argument(
-        "--augment", default=False, action="store_true", help="Augment Data (F,B,C)"
-    )
+    parser.add_argument("--replace_codebook", type=int,default=0,help="Replace Codebook Frequency")
+    parser.add_argument("--create_dataset", default=False, action="store_true", help="Create Dataset")
+    parser.add_argument("--augment", default=False, action="store_true", help="Augment Data (F,B,C)")
     parser.add_argument("--train_vq", default=True, action="store_true", help="training flag - vqgan")
     parser.add_argument(
         "--dataset",
@@ -345,21 +343,16 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=1e-4, help="learning rate")
     parser.add_argument("--lbs", type=int, default=3, help="Batch size per gpu")
     parser.add_argument("--epochs", type=int, default=100, help="Epochs")
-    parser.add_argument(
-        "--val_perc", type=float, default=0.1, help="Validation Percentage of Dataset"
-    )
+    parser.add_argument("--val_perc", type=float, default=0.1, help="Validation Percentage of Dataset")
     parser.add_argument(
         "--suffix",
         default="wandb",
         type=str,
         help="output or ckpts saved with this suffix",
     )
-    parser.add_argument(
-        "--num_gpus", default=2, type=int, help="Number of GPUs to be used"
-    )
-    parser.add_argument(
-        "--kernel_resize", default=True, action="store_true", help="kernel resize flag"
-    )
+    parser.add_argument("--num_gpus", default=2, type=int, help="Number of GPUs to be used")
+    parser.add_argument("--dropout", default=0.1, type=float, help="Dropout value")
+    parser.add_argument("--kernel_resize", default=True, action="store_true", help="kernel resize flag")
     parser.add_argument("--test_epoch", type=int)
     parser.add_argument("--save_best_only", default=True, action="store_true")
     parser.add_argument("--vqgan_load_ckpt", type=str, default=None)

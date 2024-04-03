@@ -139,7 +139,7 @@ def run_experiment(args, strategy, train_dataset, val_dataset):
     reduce_lr = tf.keras.callbacks.ReduceLROnPlateau(
         monitor="loss",
         factor=0.02,
-        patience=8,
+        patience=3,
         min_lr=1e-6,
         verbose=1,
     )
@@ -153,7 +153,7 @@ def run_experiment(args, strategy, train_dataset, val_dataset):
         if args.replace_codebook>0:
             callbacks = [reduce_lr, WandbCallback(save_model=False), wandbImage, model_checkpoint_callback, replace_codebook_callback]
         else: 
-            callbacks = [reduce_lr, replace_codebook_callback, WandbCallback(save_model=False), wandbImage]
+            callbacks = [reduce_lr, WandbCallback(save_model=False), wandbImage]
 
     initial_epoch = 0
     if args.resume_ckpt:
@@ -292,7 +292,7 @@ def run(args):
                 augment_flag=args.augment,
                 save_flag=args.create_dataset,
             )
-    # dataset = dataset.take(20)
+    dataset = dataset.take(3000)
     dataset = dataset.shuffle(buffer_size = 2 * args.lbs) 
     options = tf.data.Options()
     options.experimental_distribute.auto_shard_policy = (

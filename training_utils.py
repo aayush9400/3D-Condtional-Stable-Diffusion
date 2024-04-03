@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import wandb
 
 class WandbImageCallback(tf.keras.callbacks.Callback):
-    def __init__(self, model, val_dataset, layer_idx=64, num_images=2, log_freq=10):
+    def __init__(self, model, val_dataset, layer_idx=64, num_images=5, log_freq=10):
         # Initialize with the VQVAE model and validation dataset
         self.model = model
         self.val_dataset = val_dataset

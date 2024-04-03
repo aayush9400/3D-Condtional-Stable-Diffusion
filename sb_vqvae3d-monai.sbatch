@@ -3,8 +3,8 @@
 #SBATCH -J VQB12
 #SBATCH -p gpu
 #SBATCH --account r00230
-#SBATCH -o vqvae3d-64x256-12.output
-#SBATCH -e vqvae3d-64x256-12.err
+#SBATCH -o vqvae3d-512x256-12.output
+#SBATCH -e vqvae3d-512x256-12.err
 #SBATCH -n 2
 #SBATCH --mem=96G
 #SBATCH -t 2-00:00:00
@@ -19,5 +19,5 @@ module load python/gpu/3.10.10
 # python main.py --train_vq  --augment --kernel_resize --save_best_only --dataset='all-T' --lbs 3 --lr 0.0001 --epochs 200 #--resume_ckpt 3
 # python main_exp_vqvae.py --channel_list='(32,64,128)' --dataset='all-T' --exp_name='24,32x64x128,512x256' --embedding_dim=256 --epochs=200  --lbs=6 --lr=0.0001 --num_embedding=512 #--replace_codebook=100
 # python main_exp_vqvae.py --channel_list='(32,64,128)' --dataset='all-T' --exp_name='24,32x64x128,64x256' --embedding_dim=256 --epochs=200  --lbs=6 --lr=0.0001 --num_embedding=64 #--replace_codebook=100
-# python main_exp_vqvae.py --channel_list='(32,64,128)' --dataset='all-T' --exp_name='12,32x64x128,512x256' --embedding_dim=256 --epochs=200  --lbs=3 --lr=0.0001 --num_embedding=512 #--replace_codebook=100
-python main_exp_vqvae.py --channel_list='(32,64,128)' --dataset='all-T' --exp_name='12,32x64x128,64x256' --embedding_dim=256 --epochs=200  --lbs=3 --lr=0.0001 --num_embedding=64 #--replace_codebook=100
+python main_exp_vqvae.py --channel_list='(32,64,128)' --dataset='all-T' --exp_name='12,32x64x128,512x256' --embedding_dim=256 --epochs=200  --lbs=3 --lr=0.0001 --num_embedding=512 #--replace_codebook=100
+# python main_exp_vqvae.py --channel_list='(32,64,128)' --dataset='all-T' --exp_name='12,32x64x128,64x256' --embedding_dim=256 --epochs=200  --lbs=3 --lr=0.0001 --num_embedding=64 #--replace_codebook=100
