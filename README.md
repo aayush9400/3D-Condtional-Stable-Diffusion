@@ -3,39 +3,36 @@
 Synthetic MRI generation using StableDiffusion &amp; VQVAE
 
 ## Proposal
-The aim of this project is to contribute to the open source community in synthetic image generation for MRI images, using latent diffusion modelling inspired by [Denoised Diffusion Probabilistic Models](https://arxiv.org/pdf/2006.11239.pdf) &amp; [Stable Diffusion](https://arxiv.org/abs/2112.10752). Further we aim to condition the diffusion models on various parameters.
-
+This project endeavors to advance the field of synthetic MRI image generation through the development of innovative latent diffusion models, drawing inspiration from seminal works on [Denoised Diffusion Probabilistic Models](https://arxiv.org/pdf/2006.11239.pdf) &amp; [Stable Diffusion](https://arxiv.org/abs/2112.10752). Our goal is to condition these models on a diverse set of parameters to generate high-fidelity synthetic datasets. These datasets are intended to facilitate the pre-training of data-intensive transformer models for various downstream tasks, thus mitigating the challenges posed by small, heterogeneously sourced medical datasets and the domain shift issues inherent in models pre-trained on non-medical datasets like ImageNet.
 The advantages of Diffusion Models have been witnessed only recently in the field of Medical imaging, leaving scope for more exploration. We aim to produce large size synthetic datasets that could be used to pre-train data hungry Transformer models for downstream tasks. This could help avoid training models on small medical datasets collected from different machines with varying parameters, nor rely on Imagenet pre-trained models that suffer from change in domain distributional shift.
 
 ## Introduction
-In the context of deep learning, Diffusion Models consist of two processes - forward & reverse. These two processes are designed as Markov chain models where future state only depends on the current state & not on past states. Each state is modelled as a Gaussian distribution with mean & variance as the model parameters. Forward processes denote gradual addition of noise to an input image, where as reverse process denotes gradual removal of noise from a random noisy image.
+Diffusion models operate through a dual-process framework consisting of forward and reverse phases, both modeled as Markov chains. In the forward phase, noise is incrementally introduced into the input image, transforming it into a Gaussian distribution characterized by specific mean and variance parameters. Conversely, the reverse phase involves the gradual denoising of a perturbed image back to its original state.
 
-![Diffusion Processes](https://github.com/lb-97/SyntheticMRI/blob/main/_static/diffusionmodel.png)
+![Diffusion Processes](https://github.com/aayush9400/3D-Conditional-Stable-Diffusion/blob/main/_static/diffusionmodel.png)
 
-In the forward process, these model parameters are not learnt rather chosen as hyperparameters. So, reparametrization trick can be used to calculate forward probabilities at every timestep. Whereas, the paper proposes a U-Net to learn the parameters of the reverse process. Since the ouptut of the final state in the reverse process is a probability function, the objective therefore is to increase the likelihood of the probability function. Using KL divergence, the paper proves that maximizing likelihood function is equivalent to decreasing the distance between the forward posterior gaussian & the reverse gaussian at each timestep. On further derivation, it also shows that the objective function is eventually equivalent to predicting the noise added at each step. Therefore U-Net is trained to predict the gaussian noise added at each timestep using L2 loss.
+Notably, the U-Net architecture is employed to learn the parameters of the reverse process, with the model's training objective centered on maximizing the likelihood of the output probability distribution. This is achieved through the minimization of the L2 loss associated with noise prediction at each timestep, a principle referred to as denoised score matching.
+
+The innovation of conducting training within a latent space, as proposed by Stable Diffusion, ensures the stability of the training process. This approach entails the separation of perceptual compression, achieved through models such as KL-VAE and VQ-VAE, from the denoising process. However, initial experiments with VQ-VAE revealed limitations, prompting a strategic pivot to VQ-GAN. The VQ-GAN model incorporates additional losses - perceptual loss, GAN feature matching loss, and L1 loss - enhancing the model's performance by providing a more nuanced approach to image reconstruction and generation.
 
 ```
 Maximizing likelihood function = Minimizing L2 loss of noise prediction.
 That's why the whole training methodology is also called denoised score matching!
 ```
 
-This is taken a notch up by carrying out training in latent space, inspired by Stable Diffusion. This paper proves that seperating training of perceptual compression(downsampling original dimension to latent space dimension) & denoising mechanism results in stable training, hence the name 'Stable Diffusion'. Perceptual compression is achieved through encoder-decoder models such as KL-VAE, VQ-VAE. VQ-VAE model addresses ['Posterior collapse'](https://github.com/lb-97/GenerativeAI-VQVAE-MNIST/blob/main/README.md) observed in traditional VAEs by effectively utilizing the latent space. For our problem statement, we pre-train VQ-VAE on same medical datasets until training curve is stabilized & converged. 
-
 ## Models
-As the first step in training, we designed a 3D VQVAE that consists of an encoder, decoder, and a quantizer. Encoder downsamples the input thrice using strided convolutions each followed by ``relu`` non-linear units. It is trained to quantize encoder outputs to the closest of these embeddings using L2 loss function. The decoder consists of upsampling layers using transposed convolutions each followed by ``relu`` non-linear units. 
+Our initial foray into model development led to the creation of a 3D VQ-VAE model, which was subsequently succeeded by a more sophisticated VQ-GAN framework in response to the former's limitations. The VQ-GAN model is distinguished by its inclusion of a discriminator component, which introduces a adversarial dynamic to the training process, thereby refining the generated images' fidelity.
 
-The model is trained to minimize the sum of reconstruction loss & quantization loss. The architecture of the model is inspired by [tensorflow's official implementation of VQ-VAE for 2D images](https://keras.io/examples/generative/vq_vae/).
+The U-Net architecture within our diffusion model is composed of downsampling, middle, and upsampling blocks, each incorporating Residual and Attention Blocks. These components are meticulously designed to condition the model on diffusion timesteps, thereby enhancing its generative capabilities.
 
-The basic code blocks of the U-Net of the Diffusion Model are Downsampling, Middle and Upsampling blocks, where each constitute ResidualBlock & AttentionBlock or CrossAttentionBlock. ResidualBlock is additionally conditioned on the diffusion timestep, DDPM implements this conditioning by adding diffusion timestep to the input image, whereas DDIM performs a concatenation.
-
-Downsampling & Upsampling in the U-Net are performed 4 times with decreasing & increasing widths respectively. Each downsampling layer consists of two ResidualBlocks, an optional AttentionBlock and a convolutional downsampling(stride=2) layer. At each upsampling layer, there's a concatenation from the respective downsampling layer, three ResidualBlocks, an optional AttentionBlock, ``keras.layers.Upsampling2D`` and a Conv2D layers. The Middle block consists of two ResidualBlocks with an AttentionBlock in between, resulting in no change in the output size. The final output of the Upsampling block is followed by a GroupNormalization layer, Swish Activation layer and Conv2D layer to provide an output with desired dimensions.
-
-The U-Net model is trained to minimize the noise predicted at every timestep for every image. We produce latents from VQVAE and train unconditional U-Net in latent dimension to produce better generations than that of VQVAE. This model has been tested on MNIST dataset and the generations obtained can be seen [here](https://github.com/dipy/dipy/blob/master/doc/_static/DM-MNIST-DDIM300-108epoch.png).
+Our approach to model training is characterized by a meticulous optimization of the various loss components, including perceptual loss, GAN feature matching loss, and L1 loss. This multi-faceted loss strategy significantly improves the quality and realism of the generated synthetic MRI images.
 
 ## Experiments
-We ran multiple 3D VQVAE experiments with varying hyper-parameters which can be viewed [here](https://api.wandb.ai/links/dipy_genai/dzrwwnai) which has a summary of all the experiements & outputs.
+Extensive experiments were conducted to evaluate the efficacy of the VQ-GAN model, with a particular focus on the impact of the newly integrated loss functions. These experiments demonstrated a marked improvement in the quality of the generated images, affirming the superiority of the VQ-GAN model over its VQ-VAE predecessor.
 
-To improve the efficacy of VQVAE latents further, we adopted MONAI's encoder-decoder architecture, that has residual connection after every convolutional layer. This model increases the complexity through skip connections facilitating the flow of non-zero gradients in backpropagation. This resulted in high qualitative & quantitative reconstructions.
+The transition to the VQ-GAN model, complemented by a sophisticated loss strategy, signifies a pivotal advancement in our project. The results of these experiments, which underscore the enhanced quality and realism of the synthetic MRI images generated by our model, can be accessed [here](https://api.wandb.ai/links/dipy_genai/dzrwwnai) which has a summary of all the experiements & outputs.
+
+In conclusion, our project represents a significant contribution to the domain of synthetic MRI image generation, leveraging the latest advancements in diffusion models and GAN technology to produce high-quality, realistic images. These developments hold great promise for the enhancement of medical imaging analysis and the broader field of medical AI research.
 
 
 
