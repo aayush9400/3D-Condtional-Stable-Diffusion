@@ -9,7 +9,7 @@ The advantages of Diffusion Models have been witnessed only recently in the fiel
 ## Introduction
 Diffusion models operate through a dual-process framework consisting of forward and reverse phases, both modeled as Markov chains. In the forward phase, noise is incrementally introduced into the input image, transforming it into a Gaussian distribution characterized by specific mean and variance parameters. Conversely, the reverse phase involves the gradual denoising of a perturbed image back to its original state.
 
-![Diffusion Processes](https://github.com/aayush9400/3D-Conditional-Stable-Diffusion/blob/main/_static/diffusionmodel.png)
+![Diffusion Processes](https://github.com/aayush9400/3D-Condtional-Stable-Diffusion/blob/main/_static/diffusionmodel.png)
 
 Notably, the U-Net architecture is employed to learn the parameters of the reverse process, with the model's training objective centered on maximizing the likelihood of the output probability distribution. This is achieved through the minimization of the L2 loss associated with noise prediction at each timestep, a principle referred to as denoised score matching.
 
