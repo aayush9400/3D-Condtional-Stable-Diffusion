@@ -106,6 +106,11 @@ def build_and_compile_model(channel_list, num_embedding, embedding_dim, args, st
         )
 
         x = tf.keras.layers.Input(shape=(128, 128, 128, 2))
+        dummy_input_3d = tf.random.normal((1, 128, 128, 128, 1))
+        _ = model.discriminator(dummy_input_3d)
+        dummy_input_2d = tf.random.normal((1, 128, 128, 1))
+        _ = model.discriminator_2d(dummy_input_2d)
+
         m = tf.keras.Model(inputs=[x], outputs=model(x))
         print(m.summary())
         model.compile(vqvae_optimizer=keras.optimizers.Adam(learning_rate=args.lr),

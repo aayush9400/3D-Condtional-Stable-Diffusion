@@ -252,7 +252,9 @@ class VQVAEResidualUnit(keras.Model):
         self.conv2.add(layers.Conv3D(self.input_channels,
                        3, strides=1, padding='same'))
         self.conv2.add(tf.keras.layers.BatchNormalization())
-        self.conv2.add(tf.keras.layers.PReLU())
+        # self.conv2.add(tf.keras.layers.PReLU())
+        self.conv2.add(tf.keras.layers.Activation(tf.nn.silu))
+
 
     def call(self, x):
         return tf.keras.layers.ReLU()(x+self.conv2(self.conv1(x)))
@@ -290,14 +292,18 @@ class Encoder(keras.Model):
         for i in range(len(self.num_channels)):
             if i == 0:
                 self.blocks.add(
-                    layers.Conv3D(self.num_channels[i], self.downsample_parameters[i][1], strides=self.downsample_parameters[i][0],
+                    layers.Conv3D(self.num_channels[i], 
+                                  self.downsample_parameters[i][1], 
+                                  strides=self.downsample_parameters[i][0],
                                   dilation_rate=self.downsample_parameters[i][2],
                                   padding=self.downsample_parameters[i][3],
                                   input_shape=(128, 128, 128, self.in_channels)
                                   ))
             else:
                 self.blocks.add(
-                    layers.Conv3D(self.num_channels[i], self.downsample_parameters[i][1], strides=self.downsample_parameters[i][0],
+                    layers.Conv3D(self.num_channels[i], 
+                                  self.downsample_parameters[i][1], 
+                                  strides=self.downsample_parameters[i][0],
                                   dilation_rate=self.downsample_parameters[i][2],
                                   padding=self.downsample_parameters[i][3],
                                   # input_shape=(128,128,128,1)
@@ -322,7 +328,8 @@ class Encoder(keras.Model):
         )
         if self.dropout:
             self.blocks.add(layers.Dropout(self.dropout))
-        self.blocks.add(layers.PReLU())
+        # self.blocks.add(layers.PReLU())
+        self.blocks.add(tf.keras.layers.Activation('swish'))
         #self.blocks = nn.ModuleList(self.blocks)
 
     def call(self, x):
@@ -371,7 +378,8 @@ class Decoder(keras.Model):
             layers.Conv3D(reversed_num_channels[0], 3, strides=1, padding='same'))
         if self.dropout:
             self.blocks.append(layers.Dropout(self.dropout))
-        self.blocks.append(layers.PReLU())
+        # self.blocks.append(layers.PReLU())
+        self.blocks.append(tf.keras.layers.Activation(tf.nn.silu))
 
         reversed_num_res_channels = list(reversed(self.num_res_channels))
         for i in range(len(self.num_channels)):
@@ -416,81 +424,110 @@ class Decoder(keras.Model):
 
 
 class Discriminator3D(keras.Model):
-    def __init__(self, in_channels, num_channels, downsample_parameters, dropout=None):
+    def __init__(self, in_channels, num_channels, downsample_parameters, dropout=None, getIntermFeat=True):
         super().__init__()
         self.in_channels = in_channels
         self.num_channels = num_channels
         self.downsample_parameters = downsample_parameters
         self.dropout = dropout
+        self.getIntermFeat = getIntermFeat
 
-        self.blocks = tf.keras.Sequential()
+        self.blocks = []
 
         for i in range(len(self.num_channels)):
+            block = tf.keras.Sequential()
             if i == 0:
-                self.blocks.add(
-                    layers.Conv3D(self.num_channels[i],
-                                  kernel_size=self.downsample_parameters[i][1], 
-                                  strides=self.downsample_parameters[i][0],
-                                  padding=self.downsample_parameters[i][3],
-                                  input_shape=(128, 128, 128, self.in_channels)
-                                  ))
+                block.add(layers.Conv3D(self.num_channels[i],
+                                        kernel_size=self.downsample_parameters[i][1], 
+                                        strides=self.downsample_parameters[i][0],
+                                        padding='same',
+                                        input_shape=(None, None, None, self.in_channels)
+                                        ))
             else:
-                self.blocks.add(
-                    layers.Conv3D(self.num_channels[i], 
-                                  kernel_size=self.downsample_parameters[i][1], 
-                                  strides=self.downsample_parameters[i][0],
-                                  dilation_rate=self.downsample_parameters[i][2],
-                                  padding=self.downsample_parameters[i][3],
-                                  ))
+                block.add(layers.Conv3D(self.num_channels[i], 
+                                        kernel_size=self.downsample_parameters[i][1], 
+                                        strides=self.downsample_parameters[i][0],
+                                        dilation_rate=self.downsample_parameters[i][2],
+                                        padding='same',
+                                        ))
+
             if i > 0 and self.dropout:
-                self.blocks.add(layers.Dropout(self.dropout))
-            self.blocks.add(layers.LeakyReLU(alpha=0.2))
+                block.add(layers.Dropout(self.dropout))
+            block.add(layers.LeakyReLU(alpha=0.2))
+            self.blocks.append(block)
         
-        self.blocks.add(layers.Flatten())
-        self.blocks.add(layers.Dense(1))
+        # Remove the final convolution layer and replace with Flatten and Dense
+        self.flatten = layers.Flatten()
+        self.final_dense = layers.Dense(1)
 
     def call(self, x):
-        y = self.blocks(x)
-        return y
+        res = [x]
+        for block in self.blocks:
+            x = block(x)
+            if self.getIntermFeat:
+                res.append(x)
+
+        x = self.flatten(x)
+        x = self.final_dense(x)
+        
+        if self.getIntermFeat:
+            res.append(x)
+            return x, res[1:] 
+        else:
+            return x, None
 
 
 class Discriminator2D(keras.Model):
-    def __init__(self, in_channels, num_channels, downsample_parameters, dropout=None):
+    def __init__(self, in_channels, num_channels, downsample_parameters, dropout=None, getIntermFeat=True):
         super().__init__()
         self.in_channels = in_channels
         self.num_channels = num_channels
         self.downsample_parameters = downsample_parameters
         self.dropout = dropout
+        self.getIntermFeat = getIntermFeat
 
-        self.blocks = tf.keras.Sequential()
+        self.blocks = []
 
         for i in range(len(self.num_channels)):
+            block = tf.keras.Sequential()
             if i == 0:
-                self.blocks.add(
-                    layers.Conv2D(self.num_channels[i],
-                                  kernel_size=self.downsample_parameters[i][1], 
-                                  strides=self.downsample_parameters[i][0],
-                                  padding=self.downsample_parameters[i][3],
-                                  input_shape=(128, 128, self.in_channels)
-                                  ))
+                block.add(layers.Conv2D(self.num_channels[i],
+                                        kernel_size=self.downsample_parameters[i][1], 
+                                        strides=self.downsample_parameters[i][0],
+                                        padding='same',
+                                        input_shape=(None, None, self.in_channels)
+                                        ))
             else:
-                self.blocks.add(
-                    layers.Conv2D(self.num_channels[i], 
-                                  kernel_size=self.downsample_parameters[i][1], 
-                                  strides=self.downsample_parameters[i][0],
-                                  dilation_rate=self.downsample_parameters[i][2],
-                                  padding=self.downsample_parameters[i][3],
-                                  ))
+                block.add(layers.Conv2D(self.num_channels[i], 
+                                        kernel_size=self.downsample_parameters[i][1], 
+                                        strides=self.downsample_parameters[i][0],
+                                        dilation_rate=self.downsample_parameters[i][2],
+                                        padding='same',
+                                        ))
+
             if i > 0 and self.dropout:
-                self.blocks.add(layers.Dropout(self.dropout))
-            self.blocks.add(layers.LeakyReLU(alpha=0.2))
+                block.add(layers.Dropout(self.dropout))
+            block.add(layers.LeakyReLU(alpha=0.2))
+            self.blocks.append(block)
         
-        self.blocks.add(layers.Flatten())
-        self.blocks.add(layers.Dense(1))
+        self.flatten = layers.Flatten()
+        self.final_dense = layers.Dense(1)
 
     def call(self, x):
-        y = self.blocks(x)
-        return y
+        res = [x]
+        for block in self.blocks:
+            x = block(x)
+            if self.getIntermFeat:
+                res.append(x)
+
+        x = self.flatten(x)
+        x = self.final_dense(x)
+        
+        if self.getIntermFeat:
+            res.append(x)
+            return x, res[1:]
+        else:
+            return x, None
 
 
 class VQGAN(keras.Model):
@@ -568,6 +605,7 @@ class VQGAN(keras.Model):
         self.gen_loss_tracker = keras.metrics.Mean(name="gan_loss")
         self.disc_loss_tracker = keras.metrics.Mean(name="disc_loss")
         self.perceptual_loss_tracker = keras.metrics.Mean(name="perceptual_loss")
+        self.gan_feat_loss_tracker = keras.metrics.Mean(name="gan_feat_loss")
         self.perplexity_tracker = keras.metrics.Mean(name="perplexity")
         self.ssim_tracker = keras.metrics.Mean(name="SSIM")
         self.psnr_tracker = keras.metrics.Mean(name="PSNR")
@@ -593,6 +631,7 @@ class VQGAN(keras.Model):
             self.gen_loss_tracker,
             self.disc_loss_tracker,
             self.perceptual_loss_tracker,
+            self.gan_feat_loss_tracker,
             self.perplexity_tracker,
             self.ssim_tracker,
             self.psnr_tracker
@@ -619,11 +658,11 @@ class VQGAN(keras.Model):
 
             perceptual_loss = self.lpips([frames_lpips, frames_recon_lpips]) * 4
             
-            real_logits = self.discriminator(img, training=True)
-            fake_logits = self.discriminator(img_recon, training=True)
+            real_logits, real_img_feat = self.discriminator(img, training=True)
+            fake_logits, fake_img_feat = self.discriminator(img_recon, training=True)
 
-            real_logits_2d = self.discriminator_2d(frames, training=True)
-            fake_logits_2d = self.discriminator_2d(frames_recon, training=True)
+            real_logits_2d, real_img_feat_2d = self.discriminator_2d(frames, training=True)
+            fake_logits_2d, fake_img_feat_2d = self.discriminator_2d(frames_recon, training=True)
 
             g_loss_adv = self.disc_loss_fn(tf.ones_like(fake_logits), fake_logits)
             g_loss_recon = tf.reduce_mean((img - img_recon)**2)
@@ -642,7 +681,20 @@ class VQGAN(keras.Model):
             # reconstruction_loss_2d = tf.reduce_mean((frames_recon-frames)**2)
             reconstruction_loss = reconstruction_loss_3d # + reconstruction_loss_2d
 
-            l = reconstruction_loss + self.quantizer.losses + g_loss + perceptual_loss
+            # Final GAN feature matching loss
+            image_gan_feat_loss = 0
+            video_gan_feat_loss = 0
+            feat_weights = 4.0 / (3 + 1) 
+            for i in range(len(fake_img_feat_2d) - 1):
+                l1_loss_2d = tf.reduce_mean(tf.abs(fake_img_feat_2d[i] - real_img_feat_2d[i]), axis=[1, 2, 3])
+                image_gan_feat_loss += feat_weights * l1_loss_2d 
+            for i in range(len(fake_img_feat) - 1):
+                l1_loss_3d = tf.reduce_mean(tf.abs(fake_img_feat[i] - real_img_feat[i]), axis=[1, 2, 3, 4])
+                video_gan_feat_loss += feat_weights * l1_loss_3d 
+
+            gan_feat_loss = 4 * (image_gan_feat_loss + video_gan_feat_loss)
+
+            l = reconstruction_loss + self.quantizer.losses + g_loss + perceptual_loss + gan_feat_loss
             l = l/self.num_gpus   
 
         grads = ae_tape.gradient(l, self.trainable_variables)
@@ -656,6 +708,7 @@ class VQGAN(keras.Model):
         self.quantize_loss_tracker.update_state(self.quantizer.losses)
         self.gen_loss_tracker.update_state(g_loss)
         self.disc_loss_tracker.update_state(disc_loss)
+        self.gan_feat_loss_tracker.update_state(gan_feat_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
         self.perplexity_tracker.update_state(perplexity)
 
@@ -664,6 +717,7 @@ class VQGAN(keras.Model):
                 "quantize_loss": self.quantize_loss_tracker.result(),
                 "gen_loss": self.gen_loss_tracker.result(),
                 "disc_loss": self.disc_loss_tracker.result(),
+                "gen_feat_loss": self.gan_feat_loss_tracker.result(),
                 "perceptual_loss": self.perceptual_loss_tracker.result(),
                 "perplexity": self.perplexity_tracker.result(),}
     
@@ -686,11 +740,11 @@ class VQGAN(keras.Model):
 
         perceptual_loss = self.lpips([frames_lpips, frames_recon_lpips])
         
-        real_logits = self.discriminator(img, training=True)
-        fake_logits = self.discriminator(img_recon, training=True)
+        real_logits, real_img_feat = self.discriminator(img, training=True)
+        fake_logits, fake_img_feat = self.discriminator(img_recon, training=True)
 
-        real_logits_2d = self.discriminator_2d(frames, training=True)
-        fake_logits_2d = self.discriminator_2d(frames_recon, training=True)
+        real_logits_2d, real_img_feat_2d = self.discriminator_2d(frames, training=True)
+        fake_logits_2d, fake_img_feat_2d = self.discriminator_2d(frames_recon, training=True)
 
         g_loss_adv = self.disc_loss_fn(tf.ones_like(fake_logits), fake_logits)
         g_loss_recon = tf.reduce_mean((img - img_recon)**2)
@@ -702,22 +756,36 @@ class VQGAN(keras.Model):
         disc_loss_fake = self.disc_loss_fn(tf.zeros_like(fake_logits), fake_logits)
         disc_loss_real_2d = self.disc_loss_fn(tf.ones_like(real_logits_2d), real_logits_2d)
         disc_loss_fake_2d = self.disc_loss_fn(tf.zeros_like(fake_logits_2d), fake_logits_2d)
-        val_disc_loss = disc_loss_real + disc_loss_fake + disc_loss_real_2d + disc_loss_fake_2d
+        disc_loss = disc_loss_real + disc_loss_fake + disc_loss_real_2d + disc_loss_fake_2d
 
         reconstruction_loss_3d = tf.reduce_mean((img_recon-img)**2)
         # reconstruction_loss_2d = tf.reduce_mean((frames_recon-frames)**2)
         reconstruction_loss = reconstruction_loss_3d #+ reconstruction_loss_2d   
 
+        # Final GAN feature matching loss
+        image_gan_feat_loss = 0
+        video_gan_feat_loss = 0
+        feat_weights = 4.0 / (3 + 1) 
+        for i in range(len(fake_img_feat_2d) - 1):
+            l1_loss_2d = tf.reduce_mean(tf.abs(fake_img_feat_2d[i] - real_img_feat_2d[i]), axis=[1, 2, 3])
+            image_gan_feat_loss += feat_weights * l1_loss_2d 
+        for i in range(len(fake_img_feat) - 1):
+            l1_loss_3d = tf.reduce_mean(tf.abs(fake_img_feat[i] - real_img_feat[i]), axis=[1, 2, 3, 4])
+            video_gan_feat_loss += feat_weights * l1_loss_3d 
+
+        gan_feat_loss = 4 * (image_gan_feat_loss + video_gan_feat_loss)
+
         # Compute reconstruction loss
-        loss = reconstruction_loss + self.quantizer.losses + g_loss + perceptual_loss
-        loss = loss / self.num_gpus
+        loss = reconstruction_loss + self.quantizer.losses + g_loss + perceptual_loss + gan_feat_loss
+        loss = loss / self.num_gpus 
 
         # Update metrics
         self.loss_tracker.update_state(loss)
         self.reconstruction_loss_tracker.update_state(reconstruction_loss)
         self.quantize_loss_tracker.update_state(self.quantizer.losses)
         self.gen_loss_tracker.update_state(g_loss)
-        self.disc_loss_tracker.update_state(val_disc_loss)  
+        self.disc_loss_tracker.update_state(disc_loss)  
+        self.gan_feat_loss_tracker.update_state(gan_feat_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
 
         ssim_scores = tf.map_fn(
@@ -738,6 +806,7 @@ class VQGAN(keras.Model):
                 "reconst_loss": self.reconstruction_loss_tracker.result(), 
                 "quantize_loss": self.quantize_loss_tracker.result(),
                 "gen_loss": self.gen_loss_tracker.result(),
+                "gen_feat_loss": self.gan_feat_loss_tracker.result(),
                 "disc_loss": self.disc_loss_tracker.result(),
                 "perceptual_loss": self.perceptual_loss_tracker.result(),
                 "ssim": self.ssim_tracker.result(),
