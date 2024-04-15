@@ -1,83 +1,20 @@
 import time
 import argparse
 import os
-import gc
-import glob
 import numpy as np
-import random
 from tqdm import tqdm
-import pandas as pd
 
 import tensorflow as tf
 from tensorflow import keras
-import tensorflow_datasets as tfds
 
-from dataset_utils import create_dataset, load_dataset
-from networks.vqgan import VQGAN, WandbImageCallback, ReplaceCodebookCallback
+from dataset_utils import create_dataset, load_dataset, get_dataset_list
+from networks.vqgan import VQGAN, WandbImageCallback, ReplaceCodebookCallback, EpochCounterCallback
 
 import wandb
 from wandb.keras import WandbCallback
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # Suppress TensorFlow logging (1 = INFO, 2 = WARNING, 3 = ERROR)
 tf.get_logger().setLevel('ERROR')
-
-
-def get_dataset_list(dataset_dir="/N/slate/aajais/skullstripping_datasets/"):
-    dataset_list = []
-
-    if args.dataset == "CC":
-        dataset_list = glob.glob(
-            os.path.join(dataset_dir, "CC359", "Original", "*.nii.gz")
-        )
-    elif args.dataset == "NFBS":
-        dataset_list = glob.glob(
-            os.path.join(
-                dataset_dir, "NFBS_Dataset", "*", "sub-*_ses-NFB3_T1w_brain.nii.gz"
-            )
-        )
-    elif args.dataset == "HCP":
-        dataset_list = glob.glob(os.path.join(dataset_dir, "HCP_T1", "T1", "*.nii.gz"))
-    elif args.dataset == "BraTS":
-        dataset_list = glob.glob(
-            os.path.join(dataset_dir, "BraTS2021", "*", "*_t1.nii.gz")
-        )
-    elif args.dataset == "all":
-        dataset_list = glob.glob(
-            os.path.join(dataset_dir, "CC359", "Original", "*.nii.gz")
-        )
-        dataset_list.extend(
-            glob.glob(
-                os.path.join(
-                    dataset_dir, "NFBS_Dataset", "*", "sub-*_ses-NFB3_T1w_brain.nii.gz"
-                )
-            )
-        )
-        dataset_list.extend(
-            glob.glob(os.path.join(dataset_dir, "HCP_T1", "T1", "*.nii.gz"))
-        )
-    elif args.dataset == "all-T":
-        dataset_list = glob.glob(
-            os.path.join(dataset_dir, "CC359", "Original", "*.nii.gz")
-        )
-        dataset_list.extend(
-            glob.glob(
-                os.path.join(
-                    dataset_dir, "NFBS_Dataset", "*", "sub-*_ses-NFB3_T1w_brain.nii.gz"
-                )
-            )
-        )
-        dataset_list.extend(
-            glob.glob(os.path.join(dataset_dir, "HCP_T1", "T1", "*.nii.gz"))
-        )
-        dataset_list.extend(
-            glob.glob(os.path.join(dataset_dir, "BraTS2021", "*", "*_t1.nii.gz"))
-        )
-
-    if args.test_run:
-        print(len(dataset_list))
-        # dataset_list = dataset_list[:240]
-
-    return dataset_list
 
 
 def build_and_compile_model(channel_list, num_embedding, embedding_dim, args, strategy):
@@ -102,7 +39,13 @@ def build_and_compile_model(channel_list, num_embedding, embedding_dim, args, st
             num_gpus=args.num_gpus,
             kernel_resize=args.kernel_resize,
             dropout=args.dropout,
-            B=args.bs
+            B=args.bs,
+            disc_threshold=args.disc_threshold,
+            disc_loss_fn=args.disc_loss_fn,
+            disc_use_sigmoid=args.disc_use_sigmoid,
+            lpips_wt=args.lpips_wt,
+            gan_feat_wt=args.gan_feat_wt,
+            act_fn=args.act_fn,
         )
 
         x = tf.keras.layers.Input(shape=(128, 128, 128, 2))
@@ -149,17 +92,17 @@ def run_experiment(args, strategy, train_dataset, val_dataset):
         verbose=1,
     )
     
-    # replace_codebook_callback = ReplaceCodebookCallback(model.get_vq_model(), batch_size=args.bs, frequency=args.replace_codebook)
+    replace_codebook_callback = ReplaceCodebookCallback(model.get_vq_model(), batch_size=args.bs, frequency=args.replace_codebook)
     wandbImage = WandbImageCallback(model, val_dataset, log_freq=10)
-
+    epoch_counter = EpochCounterCallback(model)
     if args.test_run:
         # callbacks = [reduce_lr, replace_codebook_callback, model_checkpoint_callback]
-        callbacks = [reduce_lr, WandbCallback(save_model=False), wandbImage]
+        callbacks = [reduce_lr, WandbCallback(save_model=False), wandbImage, epoch_counter]
     else:
         if args.replace_codebook>0:
-            callbacks = [reduce_lr, WandbCallback(save_model=False), wandbImage, replace_codebook_callback]
+            callbacks = [reduce_lr, WandbCallback(save_model=False), wandbImage, replace_codebook_callback, epoch_counter]
         else: 
-            callbacks = [reduce_lr, WandbCallback(save_model=False), wandbImage]
+            callbacks = [reduce_lr, WandbCallback(save_model=False), wandbImage, epoch_counter]
 
     initial_epoch = 0
     if args.resume_ckpt:
@@ -215,7 +158,7 @@ def run(args):
         args.suffix += "-all-T"
     print("Global Batch Size: ", args.bs)
 
-    dataset_list = get_dataset_list()
+    dataset_list = get_dataset_list(dataset_vers=args.dataset, test_run_flag=args.test_run)
     print("Total Images in dataset: ", len(dataset_list))
     args.test_size = len(dataset_list) - (len(dataset_list) // args.bs) * args.bs
     print(args)
@@ -224,8 +167,13 @@ def run(args):
     if args.test_vq:
         lis = dataset_list[-args.test_size :]
     print("Total images available for training: ", len(lis))
-
-    dataset_save_path = (f"/N/slate/aajais/skullstripping_datasets/training_data/with_mask_context_B12-KR-AUG-all-T/")
+    
+    if args.dataset == "all-T":
+        dataset_save_path = (f"/N/slate/aajais/skullstripping_datasets/training_data/with_mask_context_B12-KR-AUG-all-T/")
+    elif args.dataset == "minus121":
+        dataset_save_path = (f"/N/slate/aajais/skullstripping_datasets/training_data/minus121/")
+    elif args.dataset == "minus121_augment":
+        dataset_save_path = (f"/N/slate/aajais/skullstripping_datasets/training_data/minus121_augment/")
     # dataset_save_path = (f"/N/slate/aajais/skullstripping_datasets/training_data/with_mask_context_B12-KR-AUG-all/")
     if args.create_dataset:
         start = time.time()
@@ -261,8 +209,11 @@ def run(args):
     if args.test_run:
         dataset = dataset.take(3 * args.bs)
     else:
-        dataset = dataset.take(3000)
-    dataset = dataset.shuffle(buffer_size = 2 * args.lbs) 
+        if args.dataset == 'all-T':
+            dataset = dataset.take(3000)
+        elif args.dataset == 'minus121':
+            dataset = dataset
+        
     options = tf.data.Options()
     options.experimental_distribute.auto_shard_policy = (
         tf.data.experimental.AutoShardPolicy.DATA
@@ -275,9 +226,12 @@ def run(args):
         train_dataset = dataset.take(train_size)
         val_dataset = dataset.skip(train_size)
 
+        train_dataset = train_dataset.shuffle(buffer_size = train_dataset.cardinality(), seed=42) 
         train_dataset = train_dataset.batch(args.bs).prefetch(
             tf.data.experimental.AUTOTUNE
         )
+
+        val_dataset = val_dataset.shuffle(buffer_size = val_dataset.cardinality(), seed=42) 
         val_dataset = val_dataset.batch(args.bs).prefetch(tf.data.experimental.AUTOTUNE)
 
         train_dataset = train_dataset.with_options(options)
@@ -366,6 +320,12 @@ if __name__ == "__main__":
     parser.add_argument("--channel_list", type=str, help="List of channels in the format '(num1,num2,...)'")
     parser.add_argument("--num_embedding", type=int, help="Number of embeddings")
     parser.add_argument("--embedding_dim", type=int, help="Dimension of embeddings")
+    parser.add_argument("--disc_threshold", type=int, default=0, help="Training Steps to start Discriminator training")
+    parser.add_argument("--disc_loss_fn", type=str, default='vanilla', help="Loss function to be used to calculate discriminator loss (vanilla, hinge)")
+    parser.add_argument("--gan_feat_wt", default=0.8, type=float, help="Dropout value")
+    parser.add_argument("--lpips_wt", default=4.0, type=float, help="Dropout value")    
+    parser.add_argument("--disc_use_sigmoid", default=False, action="store_true")
+    parser.add_argument("--act_fn", type=str, default='prelu', help="Activation to be use for Encode and Decoder")
     args = parser.parse_args()
 
     run(args)

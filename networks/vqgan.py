@@ -10,8 +10,23 @@ import tensorflow as tf
 from dipy.align.reslice import reslice
 
 from models.lpips_tensorflow import learned_perceptual_metric_model
-
 import wandb
+
+
+class EpochCounterCallback(tf.keras.callbacks.Callback):
+    def __init__(self, model):
+        self.model = model
+
+    def on_epoch_begin(self, epoch, logs=None):
+        self.model.epoch_counter.assign(epoch + 1)
+
+class SIRENActivation(layers.Layer):
+    def __init__(self, w0=1.0, **kwargs):
+        super(SIRENActivation, self).__init__(**kwargs)
+        self.w0 = w0
+
+    def call(self, inputs):
+        return tf.sin(self.w0 * inputs)
 
 
 def adopt_weight(weight, global_step, threshold=0, value=0.):
@@ -240,20 +255,29 @@ class VectorQuantizer(keras.Model):
 
 
 class VQVAEResidualUnit(keras.Model):
-    def __init__(self, input_channels, num_res_channels, act='relu'):
+    def __init__(self, input_channels, num_res_channels, act_fn, dropout=None):
         super().__init__()
         self.num_res_channels = num_res_channels
         self.input_channels = input_channels
-        self.act = act
+        self.act_fn = act_fn
+        self.dropout = dropout
 
         self.conv1 = layers.Conv3D(
-            self.num_res_channels, 3, activation=self.act, strides=1, padding='same')
+            self.num_res_channels, 3, activation='relu', strides=1, padding='same')
         self.conv2 = tf.keras.Sequential()
         self.conv2.add(layers.Conv3D(self.input_channels,
                        3, strides=1, padding='same'))
         self.conv2.add(tf.keras.layers.BatchNormalization())
-        # self.conv2.add(tf.keras.layers.PReLU())
-        self.conv2.add(tf.keras.layers.Activation(tf.nn.silu))
+
+        if self.dropout:
+            self.conv2.add(tf.keras.layers.Dropout(self.dropout))
+
+        if self.act_fn == 'prelu':
+            self.conv2.add(tf.keras.layers.PReLU())
+        elif act_fn == 'siren':
+            self.conv2.add(SIRENActivation(w0=1.0))
+        elif act_fn == 'swish':
+            self.conv2.add(tf.keras.layers.Activation('swish'))
 
 
     def call(self, x):
@@ -277,7 +301,7 @@ class Encoder(keras.Model):
         act: activation type and arguments.
     """
 
-    def __init__(self, in_channels, out_channels, num_channels, num_res_layers, num_res_channels, downsample_parameters, dropout=0.0):
+    def __init__(self, in_channels, out_channels, num_channels, num_res_layers, num_res_channels, downsample_parameters, act_fn, dropout=0.0):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -286,6 +310,7 @@ class Encoder(keras.Model):
         self.num_res_channels = num_res_channels
         self.downsample_parameters = downsample_parameters
         self.dropout = dropout
+        self.act_fn = act_fn
 
         self.blocks = tf.keras.Sequential()
 
@@ -306,31 +331,44 @@ class Encoder(keras.Model):
                                   strides=self.downsample_parameters[i][0],
                                   dilation_rate=self.downsample_parameters[i][2],
                                   padding=self.downsample_parameters[i][3],
-                                  # input_shape=(128,128,128,1)
                                   ))
+            self.blocks.add(tf.keras.layers.BatchNormalization())
 
             if i > 0 and self.dropout:
                 self.blocks.add(layers.Dropout(self.dropout))
-            self.blocks.add(layers.ReLU())
+
+            if self.act_fn == 'prelu':
+                self.blocks.add(tf.keras.layers.PReLU())
+            elif act_fn == 'siren':
+                self.blocks.add(SIRENActivation(w0=1.0))
+            elif act_fn == 'swish':
+                self.blocks.add(tf.keras.layers.Activation('swish'))
+            elif act_fn == 'leaky':
+                self.blocks.add(tf.keras.layers.LeakyReLU())
 
             for _ in range(self.num_res_layers):
                 self.blocks.add(
                     VQVAEResidualUnit(
                         input_channels=self.num_channels[i],
                         num_res_channels=self.num_res_channels[i],
-                        # act=self.act,
+                        act_fn='prelu',
                         # dropout=self.dropout,
                     )
                 )
 
-        self.blocks.add(
-            layers.Conv3D(self.out_channels, 3, strides=1, padding='same')
-        )
+        self.blocks.add(layers.Conv3D(self.out_channels, 3, strides=1, padding='same'))
+
         if self.dropout:
             self.blocks.add(layers.Dropout(self.dropout))
-        # self.blocks.add(layers.PReLU())
-        self.blocks.add(tf.keras.layers.Activation('swish'))
-        #self.blocks = nn.ModuleList(self.blocks)
+
+        if self.act_fn == 'prelu':
+            self.blocks.add(tf.keras.layers.PReLU())
+        elif act_fn == 'siren':
+            self.blocks.add(SIRENActivation(w0=1.0))
+        elif act_fn == 'swish':
+            self.blocks.add(tf.keras.layers.Activation('swish'))
+        elif act_fn == 'leaky':
+            self.blocks.add(tf.keras.layers.LeakyReLU())
 
     def call(self, x):
         y = self.blocks(x)
@@ -357,7 +395,7 @@ class Decoder(keras.Model):
     def __init__(
             self,
             in_channels, out_channels, num_channels, num_res_layers, num_res_channels, upsample_parameters,
-            dropout, output_act, kernel_resize=False):
+            dropout, output_act, act_fn, kernel_resize=False):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -366,7 +404,7 @@ class Decoder(keras.Model):
         self.num_res_channels = num_res_channels
         self.upsample_parameters = upsample_parameters
         self.dropout = dropout
-        #self.act = act
+        self.act_fn = act_fn
         self.output_act = output_act
         self.ICNR = kernel_resize
 
@@ -374,12 +412,18 @@ class Decoder(keras.Model):
 
         self.blocks = []
 
-        self.blocks.append(
-            layers.Conv3D(reversed_num_channels[0], 3, strides=1, padding='same'))
+        self.blocks.append(layers.Conv3D(reversed_num_channels[0], 3, strides=1, padding='same'))
+        self.blocks.append(tf.keras.layers.BatchNormalization())
+
         if self.dropout:
             self.blocks.append(layers.Dropout(self.dropout))
-        # self.blocks.append(layers.PReLU())
-        self.blocks.append(tf.keras.layers.Activation(tf.nn.silu))
+
+        if self.act_fn == 'prelu':
+            self.blocks.append(tf.keras.layers.PReLU())
+        elif act_fn == 'siren':
+            self.blocks.append(SIRENActivation(w0=1.0))
+        elif act_fn == 'swish':
+            self.blocks.append(tf.keras.layers.Activation('swish'))
 
         reversed_num_res_channels = list(reversed(self.num_res_channels))
         for i in range(len(self.num_channels)):
@@ -387,8 +431,8 @@ class Decoder(keras.Model):
                 self.blocks.append(
                     VQVAEResidualUnit(
                         input_channels=reversed_num_channels[i],
-                        num_res_channels=reversed_num_res_channels[i]
-                        # act=self.act,
+                        num_res_channels=reversed_num_res_channels[i],
+                        act_fn='prelu',
                         # dropout=self.dropout,
                     )
                 )
@@ -407,15 +451,23 @@ class Decoder(keras.Model):
                                        padding=self.upsample_parameters[i][3],
                                        # output_padding=self.upsample_parameters[i][4]
                                        kernel_initializer=kernel_initializer))
+            self.blocks.append(tf.keras.layers.BatchNormalization())
+
             if i != len(self.num_channels) - 1:
                 if self.dropout:
                     self.blocks.append(layers.Dropout(self.dropout))
-                self.blocks.append(layers.ReLU())
+
+                if self.act_fn == 'prelu':
+                    self.blocks.append(tf.keras.layers.PReLU())
+                elif act_fn == 'siren':
+                    self.blocks.append(SIRENActivation(w0=1.0))
+                elif act_fn == 'swish':
+                    self.blocks.append(tf.keras.layers.Activation('swish'))
+                elif self.act_fn == 'relu':
+                    self.blocks.append(tf.keras.layers.ReLU())
 
         if self.output_act:
             self.blocks.append(layers.ReLU())
-
-        #self.self.blocks = nn.ModuleList(self.blocks)
 
     def call(self, x):
         for block in self.blocks:
@@ -424,13 +476,14 @@ class Decoder(keras.Model):
 
 
 class Discriminator3D(keras.Model):
-    def __init__(self, in_channels, num_channels, downsample_parameters, dropout=None, getIntermFeat=True):
+    def __init__(self, in_channels, num_channels, downsample_parameters, dropout=None, getIntermFeat=True, use_sigmoid=False):
         super().__init__()
         self.in_channels = in_channels
         self.num_channels = num_channels
         self.downsample_parameters = downsample_parameters
         self.dropout = dropout
         self.getIntermFeat = getIntermFeat
+        self.use_sigmoid = use_sigmoid
 
         self.blocks = []
 
@@ -460,6 +513,9 @@ class Discriminator3D(keras.Model):
         self.flatten = layers.Flatten()
         self.final_dense = layers.Dense(1)
 
+        if self.use_sigmoid == True:
+            self.sigmoid = layers.Activation('sigmoid')
+
     def call(self, x):
         res = [x]
         for block in self.blocks:
@@ -470,6 +526,9 @@ class Discriminator3D(keras.Model):
         x = self.flatten(x)
         x = self.final_dense(x)
         
+        if self.use_sigmoid == True:
+            x = self.sigmoid(x)
+        
         if self.getIntermFeat:
             res.append(x)
             return x, res[1:] 
@@ -478,13 +537,14 @@ class Discriminator3D(keras.Model):
 
 
 class Discriminator2D(keras.Model):
-    def __init__(self, in_channels, num_channels, downsample_parameters, dropout=None, getIntermFeat=True):
+    def __init__(self, in_channels, num_channels, downsample_parameters, dropout=None, getIntermFeat=True, use_sigmoid=False):
         super().__init__()
         self.in_channels = in_channels
         self.num_channels = num_channels
         self.downsample_parameters = downsample_parameters
         self.dropout = dropout
         self.getIntermFeat = getIntermFeat
+        self.use_sigmoid = use_sigmoid
 
         self.blocks = []
 
@@ -513,6 +573,9 @@ class Discriminator2D(keras.Model):
         self.flatten = layers.Flatten()
         self.final_dense = layers.Dense(1)
 
+        if self.use_sigmoid == True:
+            self.sigmoid = layers.Activation('sigmoid')
+
     def call(self, x):
         res = [x]
         for block in self.blocks:
@@ -522,6 +585,9 @@ class Discriminator2D(keras.Model):
 
         x = self.flatten(x)
         x = self.final_dense(x)
+
+        if self.use_sigmoid == True:
+            x = self.sigmoid(x)
         
         if self.getIntermFeat:
             res.append(x)
@@ -538,12 +604,18 @@ class VQGAN(keras.Model):
                      (2, 4, 1, 1, 0), (2, 4, 1, 1, 0), (2, 4, 1, 1, 0)),
                  num_embeddings=128,
                  embedding_dim=64,
-                 dropout=0.1,
+                 dropout=0.5,
                  output_act=None,
                  num_gpus=2,
                  kernel_resize=False,
                  B=12,
-                 D=128
+                 D=128,
+                 disc_threshold=0,
+                 disc_loss_fn='vanilla',
+                 act_fn='prelu',
+                 disc_use_sigmoid=False,
+                 lpips_wt=4,
+                 gan_feat_wt=0.8
                  ):
 
         super().__init__()
@@ -557,6 +629,17 @@ class VQGAN(keras.Model):
         self.num_res_layers = num_res_layers
         self.num_res_channels = num_res_channels
         self.num_gpus = num_gpus
+        if disc_loss_fn == 'vanilla':
+            self.disc_loss_fn = vanilla_d_loss
+        else:
+            self.disc_loss_fn = hinge_d_loss
+        self.epoch_counter = tf.Variable(0, trainable=False, dtype=tf.int32)
+        self.disc_threshold = disc_threshold
+        self.act_fn = act_fn
+        self.disc_use_sigmoid = disc_use_sigmoid
+        self.lpips_wt = lpips_wt
+        self.gan_feat_wt = gan_feat_wt
+
 
         self.encoder = Encoder(
             in_channels=in_channels,
@@ -565,7 +648,8 @@ class VQGAN(keras.Model):
             num_res_layers=num_res_layers,
             num_res_channels=num_res_channels,
             downsample_parameters=downsample_parameters,
-            dropout=dropout,
+            # dropout=dropout,
+            act_fn = 'prelu'
         )
 
         self.decoder = Decoder(
@@ -577,7 +661,8 @@ class VQGAN(keras.Model):
             upsample_parameters=upsample_parameters,
             dropout=dropout,
             output_act=output_act,
-            kernel_resize=kernel_resize
+            kernel_resize=kernel_resize,
+            act_fn = 'prelu'
         )
 
         self.quantizer = VectorQuantizer(
@@ -586,18 +671,18 @@ class VQGAN(keras.Model):
         self.discriminator = Discriminator3D(in_channels=self.in_channels - 1,
                                              num_channels=num_channels,
                                              downsample_parameters=downsample_parameters,
-                                             dropout=dropout)
+                                             dropout=dropout,
+                                             use_sigmoid=disc_use_sigmoid)
         
         self.discriminator_2d = Discriminator2D(in_channels=self.in_channels - 1,
                                                 num_channels=num_channels,
                                                 downsample_parameters=downsample_parameters,
-                                                dropout=dropout)
+                                                dropout=dropout,
+                                                use_sigmoid=disc_use_sigmoid)
         model_dir = './models'
         vgg_ckpt_fn = os.path.join(model_dir, 'vgg', 'exported')
         lin_ckpt_fn = os.path.join(model_dir, 'lin', 'exported')
         self.lpips = learned_perceptual_metric_model(D, vgg_ckpt_fn, lin_ckpt_fn)
-
-        self.disc_loss_fn = vanilla_d_loss
 
         self.loss_tracker = keras.metrics.Mean(name="loss")
         self.reconstruction_loss_tracker = keras.metrics.Mean(name="reconst_loss")
@@ -647,66 +732,78 @@ class VQGAN(keras.Model):
             reconstructions, perplexity = self(x)
             img_recon, mask_reconstructed = tf.split(reconstructions, num_or_size_splits=2, axis=-1)
 
-            frame_idx = tf.random.uniform(shape=(self.B,), minval=50, maxval=108, dtype=tf.int32)
+            frame_idx = tf.random.uniform(shape=(self.B,), minval=30, maxval=120, dtype=tf.int32)
             batch_range = tf.range(self.B)
             indices = tf.stack([batch_range, frame_idx], axis=1)
-
             frames = tf.gather_nd(img, indices)
-            frames_lpips = tf.concat([frames, frames, frames], axis=-1)
             frames_recon = tf.gather_nd(img_recon, indices)
-            frames_recon_lpips = tf.concat([frames_recon, frames_recon, frames_recon], axis=-1)
 
-            perceptual_loss = self.lpips([frames_lpips, frames_recon_lpips]) * 4
-            
+            frames_lpips = tf.concat([frames, frames, frames], axis=-1)
+            frames_recon_lpips = tf.concat([frames_recon, frames_recon, frames_recon], axis=-1)
+            perceptual_loss = self.lpips([frames_lpips, frames_recon_lpips]) * self.lpips_wt
+
             real_logits, real_img_feat = self.discriminator(img, training=True)
-            fake_logits, fake_img_feat = self.discriminator(img_recon, training=True)
+            fake_logits, fake_img_feat = self.discriminator(img_recon, training=False)
 
             real_logits_2d, real_img_feat_2d = self.discriminator_2d(frames, training=True)
-            fake_logits_2d, fake_img_feat_2d = self.discriminator_2d(frames_recon, training=True)
+            fake_logits_2d, fake_img_feat_2d = self.discriminator_2d(frames_recon, training=False)
 
-            g_loss_adv = self.disc_loss_fn(tf.ones_like(fake_logits), fake_logits)
-            g_loss_recon = tf.reduce_mean((img - img_recon)**2)
+            g_loss_adv_3d = self.disc_loss_fn(tf.ones_like(fake_logits), fake_logits)
             g_loss_adv_2d = self.disc_loss_fn(tf.ones_like(fake_logits_2d), fake_logits_2d)
-            g_loss_recon_2d = tf.reduce_mean((frames - frames_recon)**2)
-            g_loss = (g_loss_adv + g_loss_recon) + (g_loss_adv_2d + g_loss_recon_2d)
-
-            disc_loss_real = self.disc_loss_fn(tf.ones_like(real_logits), real_logits)
-            disc_loss_fake = self.disc_loss_fn(tf.zeros_like(fake_logits), fake_logits)
-            disc_loss_real_2d = self.disc_loss_fn(tf.ones_like(real_logits_2d), real_logits_2d)
-            disc_loss_fake_2d = self.disc_loss_fn(tf.zeros_like(fake_logits_2d), fake_logits_2d)
-            disc_loss = (disc_loss_real + disc_loss_fake) + (disc_loss_real_2d + disc_loss_fake_2d)
-            disc_loss = disc_loss / self.num_gpus
-
-            reconstruction_loss_3d = tf.reduce_mean((img_recon-img)**2)
-            # reconstruction_loss_2d = tf.reduce_mean((frames_recon-frames)**2)
-            reconstruction_loss = reconstruction_loss_3d # + reconstruction_loss_2d
+            g_loss_adv = g_loss_adv_3d + g_loss_adv_2d
 
             # Final GAN feature matching loss
             image_gan_feat_loss = 0
             video_gan_feat_loss = 0
             feat_weights = 4.0 / (3 + 1) 
             for i in range(len(fake_img_feat_2d) - 1):
-                l1_loss_2d = tf.reduce_mean(tf.abs(fake_img_feat_2d[i] - real_img_feat_2d[i]), axis=[1, 2, 3])
-                image_gan_feat_loss += feat_weights * l1_loss_2d 
+                # real_img_feat_2d[i].set_shape([self.B] + real_img_feat_2d[i].shape.as_list()[1:])
+                loss_2d = tf.reduce_mean((fake_img_feat_2d[i] - real_img_feat_2d[i])**2)
+                image_gan_feat_loss += feat_weights * loss_2d 
             for i in range(len(fake_img_feat) - 1):
-                l1_loss_3d = tf.reduce_mean(tf.abs(fake_img_feat[i] - real_img_feat[i]), axis=[1, 2, 3, 4])
-                video_gan_feat_loss += feat_weights * l1_loss_3d 
+                # real_img_feat[i].set_shape([self.B] + real_img_feat[i].shape.as_list()[1:])
+                loss_3d = tf.reduce_mean((fake_img_feat[i] - real_img_feat[i])**2)
+                video_gan_feat_loss += feat_weights * loss_3d 
+            gan_feat_loss = self.gan_feat_wt * (image_gan_feat_loss + video_gan_feat_loss)
 
-            gan_feat_loss = 4 * (image_gan_feat_loss + video_gan_feat_loss)
+            reconstruction_loss = tf.reduce_mean((img_recon-img)**2)
+            
+            perform_disc_training = tf.greater_equal(self.epoch_counter, self.disc_threshold)
 
-            l = reconstruction_loss + self.quantizer.losses + g_loss + perceptual_loss + gan_feat_loss
-            l = l/self.num_gpus   
+            def train_discriminator():
+                tf.print("Training discriminator")
 
-        grads = ae_tape.gradient(l, self.trainable_variables)
+                disc_loss_real = self.disc_loss_fn(tf.ones_like(real_logits), real_logits)
+                disc_loss_fake = self.disc_loss_fn(tf.zeros_like(fake_logits), fake_logits)
+                disc_loss_real_2d = self.disc_loss_fn(tf.ones_like(real_logits_2d), real_logits_2d)
+                disc_loss_fake_2d = self.disc_loss_fn(tf.zeros_like(fake_logits_2d), fake_logits_2d)
+                disc_loss = (disc_loss_real + disc_loss_fake) + (disc_loss_real_2d + disc_loss_fake_2d)
+                disc_loss = disc_loss / self.num_gpus
+                loss = reconstruction_loss + self.quantizer.losses + perceptual_loss + gan_feat_loss + g_loss_adv
+                return disc_loss, loss
+
+            def skip_discriminator():
+                tf.print("Not training discriminator yet")
+                disc_loss = 0.0
+                loss = reconstruction_loss + self.quantizer.losses + perceptual_loss
+                return disc_loss, loss
+
+            # Use tf.cond to execute the conditional logic
+            disc_loss, loss = tf.cond(perform_disc_training, train_discriminator, skip_discriminator)
+
+            # loss = reconstruction_loss + self.quantizer.losses + g_loss + perceptual_loss + gan_feat_loss
+            loss = loss / self.num_gpus   
+
+        grads = ae_tape.gradient(loss, self.trainable_variables)
         self.vqvae_optimizer.apply_gradients(zip(grads, self.trainable_variables))
 
         d_grads = disc_tape.gradient(disc_loss, self.discriminator.trainable_variables + self.discriminator_2d.trainable_variables)
         self.discriminator_optimizer.apply_gradients(zip(d_grads, self.discriminator.trainable_variables + self.discriminator_2d.trainable_variables))
 
-        self.loss_tracker.update_state(l)
+        self.loss_tracker.update_state(loss)
         self.reconstruction_loss_tracker.update_state(reconstruction_loss)
         self.quantize_loss_tracker.update_state(self.quantizer.losses)
-        self.gen_loss_tracker.update_state(g_loss)
+        self.gen_loss_tracker.update_state(g_loss_adv)
         self.disc_loss_tracker.update_state(disc_loss)
         self.gan_feat_loss_tracker.update_state(gan_feat_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
@@ -729,61 +826,69 @@ class VQGAN(keras.Model):
         reconstructions, _ = self(x, training=False)
         img_recon, mask_reconstructed = tf.split(reconstructions, num_or_size_splits=2, axis=-1)
         
-        frame_idx = tf.random.uniform(shape=(self.B,), minval=50, maxval=108, dtype=tf.int32)
+        frame_idx = tf.random.uniform(shape=(self.B,), minval=30, maxval=120, dtype=tf.int32)
         batch_range = tf.range(self.B)
         indices = tf.stack([batch_range, frame_idx], axis=1)
-
         frames = tf.gather_nd(img, indices)
-        frames_lpips = tf.concat([frames, frames, frames], axis=-1)
         frames_recon = tf.gather_nd(img_recon, indices)
+
+        frames_lpips = tf.concat([frames, frames, frames], axis=-1)
         frames_recon_lpips = tf.concat([frames_recon, frames_recon, frames_recon], axis=-1)
-
         perceptual_loss = self.lpips([frames_lpips, frames_recon_lpips])
-        
-        real_logits, real_img_feat = self.discriminator(img, training=True)
-        fake_logits, fake_img_feat = self.discriminator(img_recon, training=True)
 
-        real_logits_2d, real_img_feat_2d = self.discriminator_2d(frames, training=True)
-        fake_logits_2d, fake_img_feat_2d = self.discriminator_2d(frames_recon, training=True)
+        real_logits, real_img_feat = self.discriminator(img)
+        fake_logits, fake_img_feat = self.discriminator(img_recon)
 
-        g_loss_adv = self.disc_loss_fn(tf.ones_like(fake_logits), fake_logits)
-        g_loss_recon = tf.reduce_mean((img - img_recon)**2)
+        real_logits_2d, real_img_feat_2d = self.discriminator_2d(frames)
+        fake_logits_2d, fake_img_feat_2d = self.discriminator_2d(frames_recon)
+
+        g_loss_adv_3d = self.disc_loss_fn(tf.ones_like(fake_logits), fake_logits)
         g_loss_adv_2d = self.disc_loss_fn(tf.ones_like(fake_logits_2d), fake_logits_2d)
-        g_loss_recon_2d = tf.reduce_mean((frames - frames_recon)**2)
-        g_loss = g_loss_adv + g_loss_recon + g_loss_adv_2d + g_loss_recon_2d
-
-        disc_loss_real = self.disc_loss_fn(tf.ones_like(real_logits), real_logits)
-        disc_loss_fake = self.disc_loss_fn(tf.zeros_like(fake_logits), fake_logits)
-        disc_loss_real_2d = self.disc_loss_fn(tf.ones_like(real_logits_2d), real_logits_2d)
-        disc_loss_fake_2d = self.disc_loss_fn(tf.zeros_like(fake_logits_2d), fake_logits_2d)
-        disc_loss = disc_loss_real + disc_loss_fake + disc_loss_real_2d + disc_loss_fake_2d
-
-        reconstruction_loss_3d = tf.reduce_mean((img_recon-img)**2)
-        # reconstruction_loss_2d = tf.reduce_mean((frames_recon-frames)**2)
-        reconstruction_loss = reconstruction_loss_3d #+ reconstruction_loss_2d   
+        g_loss_adv = g_loss_adv_3d + g_loss_adv_2d
 
         # Final GAN feature matching loss
         image_gan_feat_loss = 0
         video_gan_feat_loss = 0
         feat_weights = 4.0 / (3 + 1) 
         for i in range(len(fake_img_feat_2d) - 1):
-            l1_loss_2d = tf.reduce_mean(tf.abs(fake_img_feat_2d[i] - real_img_feat_2d[i]), axis=[1, 2, 3])
-            image_gan_feat_loss += feat_weights * l1_loss_2d 
+            loss_2d = tf.reduce_mean((fake_img_feat_2d[i] - real_img_feat_2d[i])**2)
+            image_gan_feat_loss += feat_weights * loss_2d 
         for i in range(len(fake_img_feat) - 1):
-            l1_loss_3d = tf.reduce_mean(tf.abs(fake_img_feat[i] - real_img_feat[i]), axis=[1, 2, 3, 4])
-            video_gan_feat_loss += feat_weights * l1_loss_3d 
+            loss_3d = tf.reduce_mean((fake_img_feat[i] - real_img_feat[i])**2)
+            video_gan_feat_loss += feat_weights * loss_3d 
+        gan_feat_loss = image_gan_feat_loss + video_gan_feat_loss
 
-        gan_feat_loss = 4 * (image_gan_feat_loss + video_gan_feat_loss)
+        reconstruction_loss = tf.reduce_mean((img_recon-img)**2)
 
-        # Compute reconstruction loss
-        loss = reconstruction_loss + self.quantizer.losses + g_loss + perceptual_loss + gan_feat_loss
+        perform_disc_training = tf.greater_equal(self.epoch_counter, self.disc_threshold)
+
+        def test_discriminator():
+            tf.print("Training discriminator")
+            disc_loss_real = self.disc_loss_fn(tf.ones_like(real_logits), real_logits)
+            disc_loss_fake = self.disc_loss_fn(tf.zeros_like(fake_logits), fake_logits)
+            disc_loss_real_2d = self.disc_loss_fn(tf.ones_like(real_logits_2d), real_logits_2d)
+            disc_loss_fake_2d = self.disc_loss_fn(tf.zeros_like(fake_logits_2d), fake_logits_2d)
+            disc_loss = (disc_loss_real + disc_loss_fake) + (disc_loss_real_2d + disc_loss_fake_2d)
+            disc_loss = disc_loss / self.num_gpus
+            loss = reconstruction_loss + self.quantizer.losses + perceptual_loss + gan_feat_loss + g_loss_adv
+            return disc_loss, loss
+
+        def skip_discriminator():
+            tf.print("Not training discriminator yet")
+            disc_loss = 0.0
+            loss = reconstruction_loss + self.quantizer.losses + perceptual_loss
+            return disc_loss, loss
+
+        # Use tf.cond to execute the conditional logic
+        disc_loss, loss = tf.cond(perform_disc_training, test_discriminator, skip_discriminator)
+
         loss = loss / self.num_gpus 
 
         # Update metrics
         self.loss_tracker.update_state(loss)
         self.reconstruction_loss_tracker.update_state(reconstruction_loss)
         self.quantize_loss_tracker.update_state(self.quantizer.losses)
-        self.gen_loss_tracker.update_state(g_loss)
+        self.gen_loss_tracker.update_state(g_loss_adv)
         self.disc_loss_tracker.update_state(disc_loss)  
         self.gan_feat_loss_tracker.update_state(gan_feat_loss)
         self.perceptual_loss_tracker.update_state(perceptual_loss)
@@ -821,121 +926,3 @@ class VQGAN(keras.Model):
         self.vqvae_optimizer = vqvae_optimizer
         self.discriminator_optimizer = discriminator_optimizer
 
-
-# def Normalize(norm_type='group', num_groups=32):
-#     assert norm_type in ['group', 'batch']
-#     if norm_type == 'group':
-#         # TensorFlow does not have a built-in GroupNorm, but you can use a third-party implementation
-#         # or approximate it using existing layers (not directly equivalent).
-#         # For demonstration purposes, this code uses BatchNormalization as a placeholder.
-#         # You might want to replace this with an actual GroupNorm implementation.
-#         return layers.GroupNormalization(groups=num_groups, axis=-1, epsilon=1e-6)
-#     elif norm_type == 'batch':
-#         return layers.BatchNormalization(axis=-1)
-
-
-# class ResBlock(layers.Layer):
-#     def __init__(self, in_channels, out_channels=None, conv_shortcut=False, dropout=0.0, norm_type='group', padding_type='constant', num_groups=32, **kwargs):
-#         super(ResBlock, self).__init__(**kwargs)
-#         self.in_channels = in_channels
-#         self.out_channels = out_channels if out_channels is not None else in_channels
-#         self.use_conv_shortcut = conv_shortcut
-
-#         # Normalization layer 1
-#         self.norm1 = Normalize(norm_type, num_groups)
-#         # Convolution layer 1
-#         self.conv1 = SamePadConv3D(in_channels, self.out_channels, kernel_size=3, padding_type=padding_type)
-#         # Optional dropout layer
-#         self.dropout = layers.Dropout(dropout)
-#         # Normalization layer 2
-#         self.norm2 = self._get_norm_layer(self.out_channels, norm_type, num_groups)
-#         # Convolution layer 2
-#         self.conv2 = SamePadConv3D(self.out_channels, self.out_channels, kernel_size=3, padding_type=padding_type)
-#         # Convolution shortcut (if needed)
-#         if self.in_channels != self.out_channels or self.use_conv_shortcut:
-#             self.conv_shortcut = SamePadConv3D(in_channels, self.out_channels, kernel_size=1, padding_type=padding_type)
-
-#     def call(self, inputs):
-#         h = inputs
-#         h = self.norm1(h)
-#         h = tf.nn.silu(h)  # SiLU activation (Swish)
-#         h = self.conv1(h)
-#         h = self.dropout(h)
-#         h = self.norm2(h)
-#         h = tf.nn.silu(h)
-#         h = self.conv2(h)
-
-#         if self.in_channels != self.out_channels or self.use_conv_shortcut:
-#             inputs = self.conv_shortcut(inputs)
-
-#         return inputs + h
-
-
-# class Encoder(keras.Model):
-#     def __init__(self, n_hiddens, downsample, image_channel=3, norm_type='group', padding_type='constant', num_groups=32, **kwargs):
-#         super(Encoder, self).__init__(**kwargs)
-#         n_times_downsample = np.array([int(np.log2(d)) for d in downsample])
-#         max_ds = n_times_downsample.max()
-
-#         self.conv_first = SamePadConv3D(image_channel, n_hiddens, kernel_size=3, padding_type=padding_type)
-
-#         self.conv_blocks = []
-#         for i in range(max_ds):
-#             in_channels = n_hiddens * 2**i
-#             out_channels = n_hiddens * 2**(i+1)
-#             stride = [2 if d > 0 else 1 for d in n_times_downsample]
-#             block = tf.keras.Sequential([
-#                 SamePadConv3D(in_channels, out_channels, kernel_size=4, stride=stride, padding_type=padding_type),
-#                 ResBlock(out_channels, out_channels, norm_type=norm_type, num_groups=num_groups)
-#             ])
-#             self.conv_blocks.append(block)
-#             n_times_downsample -= 1
-
-#         self.final_block = tf.keras.Sequential([
-#             Normalize(out_channels, norm_type=norm_type, num_groups=num_groups),
-#             layers.Activation('silu')
-#         ])
-
-#         self.out_channels = out_channels
-
-#     def call(self, inputs):
-#         h = self.conv_first(inputs)
-#         for block in self.conv_blocks:
-#             h = block(h)
-#         h = self.final_block(h)
-#         return h
-    
-
-# class Decoder(keras.Model):
-#     def __init__(self, n_hiddens, upsample, image_channel, norm_type='group', num_groups=32, **kwargs):
-#         super(Decoder, self).__init__(**kwargs)
-
-#         n_times_upsample = np.array([int(math.log2(d)) for d in upsample])
-#         max_us = n_times_upsample.max()
-
-#         in_channels = n_hiddens * 2**max_us
-#         self.final_block = tf.keras.Sequential([
-#             Normalize(in_channels, norm_type, num_groups=num_groups),
-#             layers.Activation('silu')
-#         ])
-
-#         self.conv_blocks = []
-#         for i in range(max_us):
-#             in_channels = in_channels if i == 0 else n_hiddens * 2**(max_us - i + 1)
-#             out_channels = n_hiddens * 2**(max_us - i)
-#             us = tuple([2 if d > 0 else 1 for d in n_times_upsample])
-#             conv_block = tf.keras.Sequential()
-#             conv_block.add(SamePadConvTranspose3D(in_channels, out_channels, kernel_size=4, stride=us))
-#             conv_block.add(ResBlock(out_channels, out_channels, norm_type=norm_type, num_groups=num_groups))
-#             conv_block.add(ResBlock(out_channels, out_channels, norm_type=norm_type, num_groups=num_groups))
-#             self.conv_blocks.append(conv_block)
-#             n_times_upsample -= 1
-
-#         self.conv_last = SamePadConv3D(out_channels, image_channel, kernel_size=3)
-
-#     def call(self, inputs):
-#         h = self.final_block(inputs)
-#         for conv_block in self.conv_blocks:
-#             h = conv_block(h)
-#         h = self.conv_last(h)
-#         return h
