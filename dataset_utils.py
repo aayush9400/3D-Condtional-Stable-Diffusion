@@ -1,4 +1,6 @@
 import os
+import time
+import glob
 import random
 import pickle
 import numpy as np
@@ -7,6 +9,7 @@ from dipy.io.image import load_nifti
 from dipy.align.reslice import reslice
 from fury.actor import slicer
 from scipy.ndimage import affine_transform
+
 
 # Constants and Configuration
 CONFIG = {
@@ -17,8 +20,67 @@ CONFIG = {
     'contrast_range': (0.9, 1.1),
     'flip_chance': 0.6,
     'augment_percentage': 0.02,
-    'dataset_save_path': "/N/slate/aajais/skullstripping_datasets/training_data/default/"
+    'dataset_save_path': "/N/slate/aajais/skullstripping_datasets/training_data/minus121_augment/"
 }
+
+
+def get_dataset_list(dataset_vers, test_run_flag, dataset_dir="/N/slate/aajais/skullstripping_datasets/"):
+    dataset_list = []
+
+    if dataset_vers == "CC":
+        dataset_list = glob.glob(
+            os.path.join(dataset_dir, "CC359", "Original", "*.nii.gz")
+        )
+    elif dataset_vers == "NFBS":
+        dataset_list = glob.glob(
+            os.path.join(
+                dataset_dir, "NFBS_Dataset", "*", "sub-*_ses-NFB3_T1w_brain.nii.gz"
+            )
+        )
+    elif dataset_vers == "HCP":
+        dataset_list = glob.glob(os.path.join(dataset_dir, "HCP_T1", "T1", "*.nii.gz"))
+    elif dataset_vers == "BraTS":
+        dataset_list = glob.glob(
+            os.path.join(dataset_dir, "BraTS2021", "*", "*_t1.nii.gz")
+        )
+    elif dataset_vers == "all":
+        dataset_list = glob.glob(
+            os.path.join(dataset_dir, "CC359", "Original", "*.nii.gz")
+        )
+        dataset_list.extend(
+            glob.glob(
+                os.path.join(
+                    dataset_dir, "NFBS_Dataset", "*", "sub-*_ses-NFB3_T1w_brain.nii.gz"
+                )
+            )
+        )
+        dataset_list.extend(
+            glob.glob(os.path.join(dataset_dir, "HCP_T1", "T1", "*.nii.gz"))
+        )
+    elif dataset_vers == "all-T":
+        dataset_list = glob.glob(
+            os.path.join(dataset_dir, "CC359", "Original", "*.nii.gz")
+        )
+        dataset_list.extend(
+            glob.glob(
+                os.path.join(
+                    dataset_dir, "NFBS_Dataset", "*", "sub-*_ses-NFB3_T1w_brain.nii.gz"
+                )
+            )
+        )
+        dataset_list.extend(
+            glob.glob(os.path.join(dataset_dir, "HCP_T1", "T1", "*.nii.gz"))
+        )
+        dataset_list.extend(
+            glob.glob(os.path.join(dataset_dir, "BraTS2021", "*", "*_t1.nii.gz"))
+        )
+
+    if test_run_flag:
+        print(len(dataset_list))
+        dataset_list = dataset_list[:24]
+
+    return dataset_list
+
 
 def transform_image(image, affine, voxsize=None, scale=CONFIG['scale']):
     if voxsize is not None:
@@ -107,7 +169,8 @@ def load_transform_img(path):
     elif "BraTS2021" in path:
         if mask is not None:
             mask, _ = transform_brats_image(mask, affine, voxsize)
-            mask[mask < 0] *= -1  # Handling negative pixels, occurred as a result of preprocessing
+            mask[mask < 0] *= -1 
+            mask[mask >= 1] = 1
         transform_vol, _ = transform_brats_image(vol, affine, voxsize)
 
     mask = np.expand_dims(mask, -1)
@@ -119,6 +182,7 @@ def load_transform_img(path):
     transform_vol = (transform_vol - np.min(transform_vol)) / (
         np.max(transform_vol) - np.min(transform_vol)
     )
+    # transform_vol = 2 * transform_vol - 1
     transform_vol = np.expand_dims(transform_vol, -1)
     context = np.expand_dims(context, -1)
     return transform_vol, mask, context
@@ -161,6 +225,7 @@ def create_dataset(
     augment_flag=False,
     save_flag=False,
 ):
+    print('Running Dataset Operations')
     dataset_list += dataset_list[-298:]
     dataset = tf.data.Dataset.from_tensor_slices(dataset_list)
     dataset = (
@@ -215,3 +280,19 @@ def load_dataset(dataset_save_path):
         )
         print("Dataset Loaded 2.9.0")
     return dataset
+
+
+if __name__=="__main__":
+    dataset_list = get_dataset_list(dataset_vers="all-T", test_run_flag=False)
+    print("Total Images in dataset: ", len(dataset_list))
+
+    start = time.time()
+    create_flag = create_dataset(
+        dataset_list=dataset_list,
+        batch_size=12,
+        dataset_save_path=CONFIG['dataset_save_path'],
+        augment_flag=True,
+        save_flag=True,
+    )
+    end = time.time()
+    print(create_flag, "time taken:", (end - start) / 60)
