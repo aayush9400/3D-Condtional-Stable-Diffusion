@@ -16,3 +16,6 @@ reconst-vqvae-monai-scaled-128/
 *.index
 *checkpoint
 token.txt
+*.sbatch
+*.output
+*.err
